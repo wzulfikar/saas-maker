@@ -4,6 +4,7 @@ export * from './error';
 export * from './response';
 export * from './throwIfFalsy';
 export * from './throwIfInvalid';
+export * from './throwIfNull';
 export * from './throwOnError';
 export * from './throwOnNull';
 export * from './tryCatch';
