@@ -1,15 +1,15 @@
-# maker-utils
+# saas-maker
 
 Collection of utilities for building SaaS applications.
 
 ## Installation
 
 ```bash
-npm install maker-utils
+npm install saas-maker
 # or
-yarn add maker-utils
+yarn add saas-maker
 # or
-pnpm add maker-utils
+pnpm add saas-maker
 ```
 
 ## Features
@@ -22,7 +22,7 @@ pnpm add maker-utils
 ## Usage
 
 ```typescript
-import { throwOnNull, throwIfFalsy, tryCatch } from 'maker-utils';
+import { throwOnNull, throwIfFalsy, tryCatch } from 'saas-maker';
 
 // Example usage
 const processUser = (userId: string | null) => {
