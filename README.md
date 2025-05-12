@@ -41,6 +41,11 @@ const result = tryCatch(() => {
 // result will be { success: true, data: 'success' } or { success: false, error: Error }
 ```
 
+## Notes
+
+Error handling:
+- Add global error handling in your server handler and client side. Check for error which is instance of `AppError` (or use `getErrorInfo`)
+
 ## License
 
 MIT
