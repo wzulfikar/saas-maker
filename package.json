@@ -1,0 +1,19 @@
+{
+  "name": "saas-utils",
+  "version": "0.0.1",
+  "main": "index.js",
+  "scripts": {
+    "test": "bun test"
+  },
+  "keywords": [
+    "saas",
+    "utils"
+  ],
+  "author": "hey@wzulfikar.com",
+  "license": "MIT",
+  "description": "",
+  "devDependencies": {
+    "@types/bun": "^1.2.12",
+    "typescript": "^5.8.3"
+  }
+}
