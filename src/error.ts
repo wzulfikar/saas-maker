@@ -1,4 +1,4 @@
-import type { DefaultErrorCodes, HttpStatus } from "./types"
+import type { DefaultErrorCodes } from "./types"
 
 /**
  * Error codes from common errors or any string (helps with autocompletion)
@@ -11,7 +11,7 @@ export type AppErrorParams = {
   report?: boolean
   skipLog?: boolean
   /* Only applicable in server side */
-  httpStatus?: HttpStatus
+  httpStatus?: number
 }
 
 export class AppError extends Error {
@@ -19,7 +19,7 @@ export class AppError extends Error {
   errorCode?: ErrorCode
   report?: boolean
   skipLog?: boolean
-  httpStatus?: HttpStatus
+  httpStatus?: number
 
   constructor(
     message: string,
@@ -50,7 +50,7 @@ export type ErrorInfo = {
   /**
    * Only applicable when passing AppError in server codes
    */
-  httpStatus?: HttpStatus
+  httpStatus?: number
 }
 
 /**
