@@ -1,5 +1,5 @@
 {
-  "name": "saas-utils",
+  "name": "maker-utils",
   "version": "0.0.1",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
@@ -22,10 +22,10 @@
   },
   "repository": {
     "type": "git",
-    "url": "git+https://github.com/wzulfikar/saas-utils.git"
+    "url": "git+https://github.com/wzulfikar/maker-utils.git"
   },
   "bugs": {
-    "url": "https://github.com/wzulfikar/saas-utils/issues"
+    "url": "https://github.com/wzulfikar/maker-utils/issues"
   },
-  "homepage": "https://github.com/wzulfikar/saas-utils#readme"
+  "homepage": "https://github.com/wzulfikar/maker-utils#readme"
 }
