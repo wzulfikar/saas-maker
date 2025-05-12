@@ -1,5 +1,6 @@
 // Export all utilities
 export * from './checkRequest';
+export * from './cors';
 export * from './error';
 export * from './response';
 export * from './throwIfFalsy';
