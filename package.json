@@ -1,7 +1,11 @@
 {
   "name": "saas-utils",
   "version": "0.0.1",
-  "main": "index.js",
+  "main": "dist/index.js",
+  "types": "dist/index.d.ts",
+  "files": [
+    "dist"
+  ],
   "scripts": {
     "test": "bun test"
   },
@@ -11,9 +15,17 @@
   ],
   "author": "hey@wzulfikar.com",
   "license": "MIT",
-  "description": "",
+  "description": "Collection of utilities for building SaaS applications",
   "devDependencies": {
     "@types/bun": "^1.2.12",
     "typescript": "^5.8.3"
-  }
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/wzulfikar/saas-utils.git"
+  },
+  "bugs": {
+    "url": "https://github.com/wzulfikar/saas-utils/issues"
+  },
+  "homepage": "https://github.com/wzulfikar/saas-utils#readme"
 }
