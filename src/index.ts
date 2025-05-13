@@ -4,6 +4,7 @@ export * from './cors';
 export * from './error';
 export * from './response';
 export * from './reportError';
+export * from './reportErrorClient';
 export * from './throwIfFalsy';
 export * from './throwIfInvalid';
 export * from './throwIfNull';
