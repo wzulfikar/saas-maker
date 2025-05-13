@@ -21,7 +21,6 @@ export function reportError(error: unknown, params?: {
 }) {
   const reporterConfigServerSide = process.env.SAAS_MAKER_ERROR_REPORTER;
   const reporterConfigClientSide = process.env.NEXT_PUBLIC_SAAS_MAKER_ERROR_REPORTER || process.env.VITE_SAAS_MAKER_ERROR_REPORTER;
-  const isClient = typeof window !== 'undefined';
 
   switch (reporterConfigServerSide || reporterConfigClientSide) {
     case 'sentry': {
@@ -29,10 +28,10 @@ export function reportError(error: unknown, params?: {
       if (params?.ctx) payload.extra = { context: params.ctx };
       if (params?.level) payload.level = params.level;
       if (params?.userId) payload.user = { id: params.userId };
-      if (isClient) {
-        import('@sentry/browser').then((Sentry) => Sentry.captureException(error, payload));
-      } else {
+      if (typeof window === 'undefined') {
         import('@sentry/node').then((Sentry) => Sentry.captureException(error, payload));
+      } else {
+        import('@sentry/browser').then((Sentry) => Sentry.captureException(error, payload));
       }
       break;
     }
