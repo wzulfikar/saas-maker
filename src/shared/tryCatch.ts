@@ -1,4 +1,4 @@
-import type { Result } from './types'
+import type { Result } from '../types'
 
 export async function tryCatch<T, E = Error>(
   promise: Promise<T>,

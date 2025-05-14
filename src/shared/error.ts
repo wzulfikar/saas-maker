@@ -1,4 +1,4 @@
-import type { DefaultErrorCodes } from "./types"
+import type { DefaultErrorCodes } from "../types"
 
 /**
  * Error codes from common errors or any string (helps with autocompletion)

@@ -1,5 +1,5 @@
 import type { ReportErrorParams } from '../types';
-import { reportErrorShared } from '../utils/reportErrorShared';
+import { reportErrorShared } from '../internal/reportErrorShared';
 
 export function reportErrorServer(error: unknown, params?: ReportErrorParams) {
   const reporter = process.env.NEXT_PUBLIC_SAAS_MAKER_ERROR_REPORTER || process.env.VITE_PUBLIC_SAAS_MAKER_ERROR_REPORTER || 'logger';

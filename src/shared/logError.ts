@@ -1,4 +1,4 @@
-import type { Logger, ReportErrorParams } from './types';
+import type { Logger, ReportErrorParams } from '../types';
 
 export function logError(error: unknown, params?: ReportErrorParams) {
   const logger = params?.fallbackLogger || console;
