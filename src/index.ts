@@ -1,5 +1,6 @@
-// Export all utilities
+// Export all utilities from shared
 export * from './shared/error';
+export * from './shared/logError';
 export * from './shared/throwIfFalsy';
 export * from './shared/throwIfInvalid';
 export * from './shared/throwIfNull';

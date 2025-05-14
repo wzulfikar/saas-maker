@@ -1,4 +1,4 @@
-import { logError } from '../logError';
+import { logError } from '../shared/logError';
 import type { ReportErrorParams } from '../types';
 
 export function reportErrorShared(reporter: string, error: unknown, params?: ReportErrorParams) {
