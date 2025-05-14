@@ -1,24 +1,5 @@
-export type SeverityLevel = "debug" | "info" | "warning" | "error" | "fatal" & (string & {});
-
-export type Logger = {
-  info: (...args: any[]) => void;
-  warn: (...args: any[]) => void;
-  error: (...args: any[]) => void;
-  debug: (...args: any[]) => void;
-}
-
-export type ReportErrorParams = {
-  ctx?: string,
-  level?: SeverityLevel
-  userId?: string
-  fallbackLogger?: Logger
-}
-
-function logReport(error: unknown, params?: ReportErrorParams) {
-  const logger = params?.fallbackLogger || console;
-  const logLevel = params?.level && params.level in logger ? params.level : 'error';
-  logger[logLevel as keyof Logger](`[saas-maker] reportErrorClient called: '${error}'. params: ${JSON.stringify(params)}`);
-}
+import { logError } from '../logError';
+import type { ReportErrorParams } from '../types';
 
 function reportErrorShared(reporter: string, error: unknown, params?: ReportErrorParams) {
   switch (reporter) {
@@ -38,12 +19,12 @@ function reportErrorShared(reporter: string, error: unknown, params?: ReportErro
       break;
     }
     case 'logger': {
-      logReport(error, params);
+      logError(error, params);
     }
   }
 }
 
-export function reportErrorClient(error: unknown, params?: ReportErrorParams) {
+export function reportErrorServer(error: unknown, params?: ReportErrorParams) {
   const reporter = process.env.NEXT_PUBLIC_SAAS_MAKER_ERROR_REPORTER || process.env.VITE_PUBLIC_SAAS_MAKER_ERROR_REPORTER || 'logger';
   switch (reporter) {
     case 'sentry': {
