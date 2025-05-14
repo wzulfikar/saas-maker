@@ -2,7 +2,7 @@ import type { ReportErrorParams } from '../types';
 import { reportErrorShared } from '../internal/reportErrorShared';
 
 export function reportErrorServer(error: unknown, params?: ReportErrorParams) {
-  const reporter = process.env.NEXT_PUBLIC_SAAS_MAKER_ERROR_REPORTER || process.env.VITE_PUBLIC_SAAS_MAKER_ERROR_REPORTER || 'logger';
+  const reporter = process.env.SAAS_MAKER_ERROR_REPORTER || 'logger';
   switch (reporter) {
     case 'sentry': {
       const payload = {} as Record<string, unknown>;
@@ -10,7 +10,7 @@ export function reportErrorServer(error: unknown, params?: ReportErrorParams) {
       if (params?.level) payload.level = params.level;
       if (params?.userId) payload.user = { id: params.userId };
 
-      import('@sentry/browser').then((Sentry) => Sentry.captureException(error, payload));
+      import('@sentry/node').then((Sentry) => Sentry.captureException(error, payload));
       break;
     }
     default: {
