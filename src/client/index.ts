@@ -1,2 +1,2 @@
 export * from './clientConfig';
-export * from './reportErrorClient';
+export * from './reportClientError';

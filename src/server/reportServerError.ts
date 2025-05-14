@@ -1,7 +1,7 @@
 import type { ReportErrorParams } from '../types';
 import { reportErrorShared } from '../internal/reportErrorShared';
 
-export function reportErrorServer(error: unknown, params?: ReportErrorParams) {
+export function reportServerError(error: unknown, params?: ReportErrorParams) {
   const reporter = process.env.SAAS_MAKER_ERROR_REPORTER || 'logger';
   switch (reporter) {
     case 'sentry': {
