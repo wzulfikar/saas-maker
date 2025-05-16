@@ -10,7 +10,10 @@ export function reportClientError(error: unknown, params?: ReportErrorParams) {
       if (params?.level) payload.level = params.level;
       if (params?.userId) payload.user = { id: params.userId };
 
-      import('@sentry/browser').then((Sentry) => Sentry.captureException(error, payload));
+      import('@sentry/browser').then((Sentry) => {
+        Sentry.captureException(error, payload)
+        Sentry.flush()
+      });
       break;
     }
     default: {

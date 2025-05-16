@@ -1,4 +1,4 @@
-import type { DefaultErrorCodes, LoggerFn } from "../types"
+import type { DefaultErrorCodes } from "../types"
 
 /**
  * Error codes from common errors or any string (helps with autocompletion)
@@ -19,7 +19,7 @@ export class AppError extends Error {
   report?: boolean
   httpStatus?: number
 
-  static logger?: LoggerFn
+  static logger?: ({ error, message }: { error: AppError, message: string }) => void
 
   constructor(
     message: string,
@@ -32,7 +32,7 @@ export class AppError extends Error {
     this.report = params?.report
     this.prettyLog = this.getLogMessage()
 
-    if (AppError.logger) AppError.logger(this.prettyLog)
+    if (AppError.logger) AppError.logger({ error: this, message: this.prettyLog })
   }
 
   getLogMessage() {
