@@ -24,3 +24,21 @@ export type DefaultErrorCodes =
 type Success<T> = { data: T; error: null }
 type Failure<E> = { data: null; error: E }
 export type Result<T, E = Error> = Success<T> | Failure<E>
+
+export type Logger = {
+  info: LoggerFn;
+  warn: LoggerFn;
+  error: LoggerFn;
+  debug: LoggerFn;
+}
+
+export type LoggerFn = (...args: any[]) => void;
+
+export type SeverityLevel = "debug" | "info" | "warning" | "error" | "fatal" & (string & {});
+
+export type ReportErrorParams = {
+  ctx?: string,
+  level?: SeverityLevel
+  userId?: string
+  fallbackLogger?: Logger
+}

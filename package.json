@@ -1,12 +1,29 @@
 {
   "name": "saas-maker",
-  "version": "0.0.10",
+  "version": "0.0.11-rc.5",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "sideEffects": false,
   "files": [
     "dist"
   ],
+  "exports": {
+    ".": {
+      "types": "./dist/index.d.ts",
+      "import": "./dist/index.js",
+      "require": "./dist/index.js"
+    },
+    "./server": {
+      "types": "./dist/server/index.d.ts",
+      "import": "./dist/server/index.js",
+      "require": "./dist/server/index.js"
+    },
+    "./client": {
+      "types": "./dist/client/index.d.ts",
+      "import": "./dist/client/index.js",
+      "require": "./dist/client/index.js"
+    }
+  },
   "scripts": {
     "test": "bun test",
     "build": "tsc"
