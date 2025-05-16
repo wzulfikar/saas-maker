@@ -36,11 +36,11 @@ export class AppError extends Error {
   }
 
   getLogMessage() {
-    let errorLog = `[AppError] "${this.message}"`
+    let errorLog = `[AppError] error: "${this.message}"`
     if (this.errorCode) errorLog += ` | code: ${this.errorCode}`
     if (this.httpStatus) errorLog += ` | httpStatus: ${this.httpStatus}`
     if (this.report) errorLog += ` | report: ${this.report}`
-    if (this.cause) errorLog += ` | cause: '${typeof this.cause === 'string' ? this.cause : JSON.stringify(this.cause)}'`
+    if (this.cause) errorLog += ` | cause: ${JSON.stringify(this.cause)}`
     return errorLog
   }
 }
