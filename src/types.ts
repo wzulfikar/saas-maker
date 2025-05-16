@@ -26,11 +26,13 @@ type Failure<E> = { data: null; error: E }
 export type Result<T, E = Error> = Success<T> | Failure<E>
 
 export type Logger = {
-  info: (...args: any[]) => void;
-  warn: (...args: any[]) => void;
-  error: (...args: any[]) => void;
-  debug: (...args: any[]) => void;
+  info: LoggerFn;
+  warn: LoggerFn;
+  error: LoggerFn;
+  debug: LoggerFn;
 }
+
+export type LoggerFn = (...args: any[]) => void;
 
 export type SeverityLevel = "debug" | "info" | "warning" | "error" | "fatal" & (string & {});
 

@@ -1,4 +1,4 @@
-import type { DefaultErrorCodes } from "../types"
+import type { DefaultErrorCodes, LoggerFn } from "../types"
 
 /**
  * Error codes from common errors or any string (helps with autocompletion)
@@ -9,7 +9,6 @@ export type AppErrorParams = {
   errorCode?: ErrorCode
   cause?: unknown
   report?: boolean
-  skipLog?: boolean
   /* Only applicable in server side */
   httpStatus?: number
 }
@@ -18,8 +17,9 @@ export class AppError extends Error {
   prettyLog: string
   errorCode?: ErrorCode
   report?: boolean
-  skipLog?: boolean
   httpStatus?: number
+
+  static logger?: LoggerFn
 
   constructor(
     message: string,
@@ -30,8 +30,9 @@ export class AppError extends Error {
     this.errorCode = params?.errorCode
     this.httpStatus = params?.httpStatus
     this.report = params?.report
-    this.skipLog = params?.skipLog
     this.prettyLog = this.getLogMessage()
+
+    if (AppError.logger) AppError.logger(this.prettyLog)
   }
 
   getLogMessage() {
@@ -39,6 +40,7 @@ export class AppError extends Error {
     if (this.errorCode) errorLog += ` | code: ${this.errorCode}`
     if (this.httpStatus) errorLog += ` | httpStatus: ${this.httpStatus}`
     if (this.report) errorLog += ` | report: ${this.report}`
+    if (this.cause) errorLog += ` | cause: '${typeof this.cause === 'string' ? this.cause : JSON.stringify(this.cause)}'`
     return errorLog
   }
 }
