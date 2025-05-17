@@ -1,10 +1,10 @@
 import { logError } from '../shared/logError';
 import type { ReportErrorParams } from '../types';
 
-export function reportErrorShared(reporter: string, error: unknown, params?: ReportErrorParams) {
+const reportErrorShared = async (reporter: string, error: unknown, params?: ReportErrorParams) => {
   switch (reporter) {
     case 'bugsnag': {
-      import('@bugsnag/js').then((Bugsnag) => {
+      await import('@bugsnag/js').then(async (Bugsnag) => {
         Bugsnag.default.notify(error as any, (event) => {
           if (params?.ctx) event.context = params.ctx;
           if (params?.level) event.severity = params.level as 'info' | 'warning' | 'error';
@@ -15,6 +15,12 @@ export function reportErrorShared(reporter: string, error: unknown, params?: Rep
     }
     case 'logger': {
       logError(error, params);
+      break;
+    }
+    default: {
+      console.error(`[saas-maker] error reported with unknown reporter '${reporter}'`, { error, params });
     }
   }
 }
+
+export { reportErrorShared }

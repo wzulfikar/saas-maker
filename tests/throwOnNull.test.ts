@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { throwOnNull } from "../src/throwOnNull";
-import { AppError } from "../src/error";
+import { throwOnNull } from '../src/shared/throwOnNull';
+import { AppError } from '../src/shared/error';
 
 describe("throwOnNull", () => {
   test("does not throw error when data is present", () => {
@@ -108,12 +108,12 @@ describe("throwOnNull", () => {
   });
   
   test("allows custom error params", () => {
-    const obj = { data: null, error: null };
+    const obj = { data: null };
     
     expect(() => {
       throwOnNull(obj, "Custom error", {
         errorCode: "CUSTOM_ERROR_CODE",
-        httpStatus: "404",
+        httpStatus: 400,
         report: true
       });
     }).toThrow(AppError);
@@ -121,14 +121,14 @@ describe("throwOnNull", () => {
     try {
       throwOnNull(obj, "Custom error", {
         errorCode: "CUSTOM_ERROR_CODE",
-        httpStatus: "404",
+        httpStatus: 400,
         report: true
       });
     } catch (error) {
       expect(error).toBeInstanceOf(AppError);
       expect((error as AppError).message).toBe("Custom error");
       expect((error as AppError).errorCode).toBe("CUSTOM_ERROR_CODE");
-      expect((error as AppError).httpStatus).toBe("404");
+      expect((error as AppError).httpStatus).toBe(400);
       expect((error as AppError).report).toBe(true);
     }
   });

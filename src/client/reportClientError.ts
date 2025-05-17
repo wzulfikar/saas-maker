@@ -1,8 +1,12 @@
-import type { ReportErrorParams } from '../types';
+import type { ErrorReporter, ReportErrorParams } from '../types';
 import { reportErrorShared } from '../internal/reportErrorShared';
 
-export function reportClientError(error: unknown, params?: ReportErrorParams) {
-  const reporter = process.env.NEXT_PUBLIC_SAAS_MAKER_ERROR_REPORTER || process.env.VITE_PUBLIC_SAAS_MAKER_ERROR_REPORTER || 'logger';
+const reportClientError: ErrorReporter = async (error: unknown, params?: ReportErrorParams) => {
+  if (reportClientError.customReporter) {
+    return reportClientError.customReporter(error, params);
+  }
+
+  const reporter = reportClientError.reporter || 'logger';
   switch (reporter) {
     case 'sentry': {
       const payload = {} as Record<string, unknown>;
@@ -10,14 +14,18 @@ export function reportClientError(error: unknown, params?: ReportErrorParams) {
       if (params?.level) payload.level = params.level;
       if (params?.userId) payload.user = { id: params.userId };
 
-      import('@sentry/browser').then((Sentry) => {
+      await import('@sentry/browser').then(async (Sentry) => {
         Sentry.captureException(error, payload)
-        Sentry.flush()
+        await Sentry.flush()
       });
       break;
     }
     default: {
-      reportErrorShared(reporter, error, params);
+      return reportErrorShared(reporter, error, params);
     }
   }
 }
+
+reportClientError.reporter = process.env.NEXT_PUBLIC_SAAS_MAKER_ERROR_REPORTER || process.env.VITE_PUBLIC_SAAS_MAKER_ERROR_REPORTER
+
+export { reportClientError }

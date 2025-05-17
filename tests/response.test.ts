@@ -10,7 +10,7 @@ import {
   notAuthenticated,
   forbidden,
   internalServerError
-} from "../src/response";
+} from "../src/server/response";
 
 describe("Response helpers", () => {
   test("json() creates a valid JSON response", () => {
