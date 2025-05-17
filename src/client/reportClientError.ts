@@ -16,7 +16,9 @@ const reportClientError: ErrorReporter = async (error: unknown, params?: ReportE
 
       await import('@sentry/browser').then(async (Sentry) => {
         Sentry.captureException(error, payload)
-        await Sentry.flush()
+        await Sentry.flush().catch((e) => {
+          console.error('[saas-maker] reportClientError: `Sentry.flush` failed. error:', e)
+        })
       });
       break;
     }
