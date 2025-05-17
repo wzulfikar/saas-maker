@@ -40,5 +40,11 @@ export type ReportErrorParams = {
   ctx?: string,
   level?: SeverityLevel
   userId?: string
-  fallbackLogger?: Logger
+}
+
+export type ErrorReporterFn = (error: unknown, params?: ReportErrorParams) => Promise<void>
+
+export interface ErrorReporter extends ErrorReporterFn {
+  reporter?: string;
+  customReporter?: ErrorReporterFn;
 }

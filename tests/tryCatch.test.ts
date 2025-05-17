@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { tryCatch } from "../src/tryCatch";
+import { tryCatch } from '../src/shared/tryCatch';
 
 describe("tryCatch", () => {
   test("return data and null error on successful promise", async () => {

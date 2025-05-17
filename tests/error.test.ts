@@ -1,5 +1,5 @@
 import { describe, expect, test } from "bun:test";
-import { AppError, getErrorInfo } from "../src/error";
+import { AppError, getErrorInfo } from "../src/shared/error";
 
 describe("AppError", () => {
   test("create an error with basic message", () => {
@@ -25,10 +25,10 @@ describe("AppError", () => {
   test("create an error with httpStatus", () => {
     const error = new AppError("Not found error", { 
       errorCode: "NOT_FOUND",
-      httpStatus: "404"
+      httpStatus: 404
     });
     
-    expect(error.httpStatus).toBe("404");
+    expect(error.httpStatus).toBe(404);
   });
   
   test("create an error with cause", () => {
@@ -44,20 +44,14 @@ describe("AppError", () => {
     expect(error.report).toBe(true);
   });
   
-  test("create an error with skipLog flag", () => {
-    const error = new AppError("Skip log error", { skipLog: true });
-    
-    expect(error.skipLog).toBe(true);
-  });
-  
   test("generates a pretty log message", () => {
     const error = new AppError("Test error", {
       errorCode: "TEST_CODE",
-      httpStatus: "400",
+      httpStatus: 400,
       report: true
     });
     
-    expect(error.prettyLog).toBe('[AppError] "Test error" | code: TEST_CODE | httpStatus: 400 | report: true');
+    expect(error.prettyLog).toBe('[AppError] error: "Test error" | code: TEST_CODE | httpStatus: 400 | report: true');
   });
 });
 
@@ -72,7 +66,7 @@ describe("getErrorInfo", () => {
   test("return ErrorInfo for AppError", () => {
     const appError = new AppError("App error", {
       errorCode: "APP_ERROR",
-      httpStatus: "500",
+      httpStatus: 500,
       report: true
     });
     
@@ -81,7 +75,7 @@ describe("getErrorInfo", () => {
     expect(errorInfo).not.toBeNull();
     expect(errorInfo?.message).toBe("App error");
     expect(errorInfo?.code).toBe("APP_ERROR");
-    expect(errorInfo?.httpStatus).toBe("500");
+    expect(errorInfo?.httpStatus).toBe(500);
     expect(errorInfo?.report).toBe(true);
   });
 });

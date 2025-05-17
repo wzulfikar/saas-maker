@@ -1,6 +1,6 @@
 import { describe, expect, test } from "bun:test";
-import { throwIfInvalid } from "../src/throwIfInvalid";
-import { AppError } from "../src/error";
+import { throwIfInvalid } from '../src/shared/throwIfInvalid';
+import { AppError } from "../src/shared/error";
 
 describe("throwIfInvalid", () => {
   test("does not throw error for valid non-empty string", () => {
@@ -87,7 +87,7 @@ describe("throwIfInvalid", () => {
     expect(() => {
       throwIfInvalid(null, "Custom error", {
         errorCode: "CUSTOM_ERROR_CODE",
-        httpStatus: "400",
+        httpStatus: 400,
         report: true
       });
     }).toThrow(AppError);
@@ -95,14 +95,14 @@ describe("throwIfInvalid", () => {
     try {
       throwIfInvalid(null, "Custom error", {
         errorCode: "CUSTOM_ERROR_CODE",
-        httpStatus: "400",
+        httpStatus: 400,
         report: true
       });
     } catch (error) {
       expect(error).toBeInstanceOf(AppError);
       expect((error as AppError).message).toBe("Custom error");
       expect((error as AppError).errorCode).toBe("CUSTOM_ERROR_CODE");
-      expect((error as AppError).httpStatus).toBe("400");
+      expect((error as AppError).httpStatus).toBe(400);
       expect((error as AppError).report).toBe(true);
     }
   });
