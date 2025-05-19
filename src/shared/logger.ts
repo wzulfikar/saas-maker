@@ -1,11 +1,14 @@
 import type { SeverityLevel } from "../types"
 
-type LoggerFn = (msg: string, params?: object & {
+type LoggerLevel = Exclude<SeverityLevel, "fatal">
+
+type LoggerFn = (msg: string, params?: Record<string, any> & {
+  level?: LoggerLevel
   report?: boolean
 }) => void
 
 type LoggerReporterFn = (msg: string, params?: object & {
-  level?: Exclude<SeverityLevel, "fatal">
+  level?: LoggerLevel
 }) => Promise<void>
 
 type Logger = {
@@ -13,27 +16,38 @@ type Logger = {
   error: LoggerFn
   warn: LoggerFn
   debug: LoggerFn
-  reporter: LoggerReporterFn | undefined
+
+  loggerFn: LoggerFn
+  prefix?: '{level}' | '{timestamp}' | (string & {})
+  reporter?: LoggerReporterFn | undefined
+}
+
+const msgWithPrefix = (msg: string, level: LoggerLevel, prefix: Logger["prefix"]) => {
+  if (!prefix) return msg
+  const parsedPrefix = prefix
+    .replace('{level}', `[${level}]`)
+    .replace('{timestamp}', `[${new Date().toISOString()}]`)
+  return `${parsedPrefix} ${msg}`
 }
 
 const logger: Logger = {
-  info: (msg, params) => {
-    console.info(msg, params)
-    logger.reporter?.(msg, { ...params, level: "info" })
+  loggerFn: (msg, params) => {
+    const { level = 'info', report, ...payload } = params || {}
+    const consoleLevel = level === 'warning' ? 'warn' : level
+    const defaultLogger = console[consoleLevel]
+    defaultLogger(msgWithPrefix(msg, level, logger.prefix), JSON.stringify(payload))
+    if (report) {
+      if (logger.reporter) {
+        logger.reporter(msg, { ...payload, level })
+      } else {
+        defaultLogger('[WARN] report is enabled but reporter is not set')
+      }
+    }
   },
-  error: (msg, params) => {
-    console.error(msg, params)
-    logger.reporter?.(msg, { ...params, level: "error" })
-  },
-  warn: (msg, params) => {
-    console.warn(msg, params)
-    logger.reporter?.(msg, { ...params, level: "warning" })
-  },
-  debug: (msg, params) => {
-    console.debug(msg, params)
-    logger.reporter?.(msg, { ...params, level: "debug" })
-  },
-  reporter: undefined as LoggerReporterFn | undefined,
+  info: (msg, params) => logger.loggerFn(msg, { ...params, level: "info" }),
+  error: (msg, params) => logger.loggerFn(msg, { ...params, level: "error" }),
+  warn: (msg, params) => logger.loggerFn(msg, { ...params, level: "warning" }),
+  debug: (msg, params) => logger.loggerFn(msg, { ...params, level: "debug" }),
 };
 
 export { logger }
