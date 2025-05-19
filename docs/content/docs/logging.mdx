@@ -1,0 +1,111 @@
+---
+title: Logging
+description: Logging utilities for consistent logging across your application
+---
+
+# Logging Utilities
+
+SaaS Maker provides a set of logging utilities to help you log messages and errors consistently across your application.
+
+## logger
+
+The `logger` object provides methods for logging messages at different levels: `info`, `warn`, `error`, and `debug`.
+
+```ts
+import { logger } from 'saas-maker';
+
+// Basic logging
+logger.info('User signed up');
+logger.warn('Rate limit approaching');
+logger.error('Payment failed');
+logger.debug('Debug information', { userId: '123', plan: 'pro' });
+
+// With additional parameters
+logger.info('User created', { 
+  userId: '123', 
+  email: 'user@example.com' 
+});
+
+// With reporting flag to send to error monitoring
+logger.error('Critical system error', { 
+  report: true,
+  service: 'payment-processor'
+});
+```
+
+### Customizing the Logger
+
+You can customize the logger by setting a prefix and a reporter function:
+
+```ts
+import { logger } from 'saas-maker';
+
+// Add timestamps to logs
+logger.prefix = '{timestamp} {level}';
+
+// Set up a custom reporter for logs that should be sent to monitoring
+logger.reporter = async (msg, params) => {
+  await sendToMonitoring(msg, params);
+};
+```
+
+### Logger Types
+
+The logger includes the following types:
+
+```ts
+type LoggerLevel = "debug" | "info" | "warning" | "error";
+
+type LoggerFn = (msg: string, params?: Record<string, any> & {
+  level?: LoggerLevel
+  report?: boolean
+}) => void;
+
+type Logger = {
+  info: LoggerFn
+  error: LoggerFn
+  warn: LoggerFn
+  debug: LoggerFn
+  
+  loggerFn: LoggerFn
+  prefix?: '{level}' | '{timestamp}' | (string & {})
+  reporter?: (msg: string, params?: object & { level?: LoggerLevel }) => Promise<void>
+};
+```
+
+## Error Reporting
+
+SaaS Maker also provides types for error reporting:
+
+```ts
+type SeverityLevel = "debug" | "info" | "warning" | "error" | "fatal" & (string & {});
+
+type ReportErrorParams = {
+  ctx?: string,
+  level?: SeverityLevel
+  userId?: string
+}
+
+type ErrorReporterFn = (error: unknown, params?: ReportErrorParams) => Promise<void>
+
+interface ErrorReporter extends ErrorReporterFn {
+  reporter?: string;
+  customReporter?: ErrorReporterFn;
+}
+```
+
+You can set up an error reporter through the `AppError` class:
+
+```ts
+import { AppError } from 'saas-maker';
+
+// Set up a logger for all AppErrors
+AppError.logger = ({ error, message }) => {
+  console.error(message);
+  
+  if (error.report) {
+    // Send to monitoring service
+    sendToMonitoring(error);
+  }
+};
+``` 

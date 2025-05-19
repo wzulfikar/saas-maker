@@ -1,0 +1,34 @@
+{
+  "categories": [
+    {
+      "name": null,
+      "items": [
+        {
+          "name": "index",
+          "label": "Introduction"
+        }
+      ]
+    },
+    {
+      "name": "Core Utilities",
+      "items": [
+        {
+          "name": "error-handling",
+          "label": "Error Handling"
+        },
+        {
+          "name": "validation",
+          "label": "Validation"
+        },
+        {
+          "name": "logging",
+          "label": "Logging"
+        },
+        {
+          "name": "result-type",
+          "label": "Result Type"
+        }
+      ]
+    }
+  ]
+} 

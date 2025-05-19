@@ -1,0 +1,102 @@
+---
+title: Validation
+description: Functions to validate inputs and throw errors when validation fails
+---
+
+# Validation Utilities
+
+SaaS Maker provides a set of validation utilities to help you validate inputs and throw errors when validation fails.
+
+## throwIfNull
+
+Throws an error if the value is null or undefined.
+
+```ts
+import { throwIfNull } from 'saas-maker';
+
+function processUser(user: User | null) {
+  // Will throw an AppError if user is null or undefined
+  throwIfNull(user, 'User not found');
+  
+  // Now TypeScript knows user is not null
+  return user.id;
+}
+
+// With custom error code
+throwIfNull(user, 'User not found', { 
+  errorCode: 'RESOURCE_NOT_FOUND', 
+  httpStatus: 404 
+});
+```
+
+## throwIfFalsy
+
+Throws an error if the value is falsy (null, undefined, false, 0, '', NaN).
+
+```ts
+import { throwIfFalsy } from 'saas-maker';
+
+function validateToken(token: string | null | undefined) {
+  // Will throw an AppError if token is falsy
+  throwIfFalsy(token, 'Token is required');
+  
+  // Now TypeScript knows token is not falsy
+  return token;
+}
+```
+
+## throwIfInvalid
+
+Throws an error if the validation function returns false.
+
+```ts
+import { throwIfInvalid } from 'saas-maker';
+
+function validateEmail(email: string) {
+  const isValid = /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email);
+  
+  // Will throw an AppError if email is invalid
+  throwIfInvalid(isValid, 'Invalid email address');
+  
+  return email;
+}
+
+// With custom error properties
+throwIfInvalid(
+  email.includes('@'), 
+  'Invalid email address', 
+  { errorCode: 'VALIDATION_ERROR' }
+);
+```
+
+## throwOnNull
+
+Similar to `throwIfNull` but works with functions that return a Result type.
+
+```ts
+import { throwOnNull } from 'saas-maker';
+
+const fetchUser = async (id: string) => {
+  // Some operation that returns a Result
+  if (!id) {
+    return { data: null, error: null };
+  }
+  return { data: { id, name: 'John' }, error: null };
+};
+
+// Will throw if fetchUser returns data that is null
+const user = await throwOnNull(
+  await fetchUser('123'), 
+  'User not found',
+  { errorCode: 'RESOURCE_NOT_FOUND' }
+);
+
+// You can also customize the error with a function
+const user2 = await throwOnNull(
+  await fetchUser('123'),
+  () => new AppError('User not found', { 
+    errorCode: 'RESOURCE_NOT_FOUND', 
+    httpStatus: 404 
+  })
+);
+``` 

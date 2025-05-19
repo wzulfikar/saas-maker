@@ -1,0 +1,142 @@
+---
+title: Error Handling
+description: Utilities for handling errors in your application
+---
+
+# Error Handling
+
+SaaS Maker provides a set of utilities for consistent error handling in your application.
+
+## AppError
+
+The `AppError` class is a custom error class that provides additional context for errors in your application.
+
+```ts
+import { AppError } from 'saas-maker';
+
+// Create a basic error
+const error = new AppError('Something went wrong');
+
+// Create an error with a specific error code
+const notFoundError = new AppError('User not found', { 
+  errorCode: 'RESOURCE_NOT_FOUND',
+  httpStatus: 404
+});
+
+// Create an error that should be reported to error monitoring
+const criticalError = new AppError('Database connection failed', {
+  errorCode: 'API_ERROR',
+  report: true,
+  cause: originalError
+});
+```
+
+### AppError Properties
+
+- `message`: The error message
+- `errorCode`: Optional error code from the `ErrorCode` type
+- `report`: Whether this error should be reported to error monitoring
+- `httpStatus`: HTTP status code for server-side errors
+- `cause`: The original error that caused this error
+- `prettyLog`: A formatted string representation of the error for logging
+
+## Error Codes
+
+SaaS Maker comes with a set of predefined error codes:
+
+```ts
+export type DefaultErrorCodes =
+  // Errors for server-side flows
+  | 'API_ERROR'              // when calling an external API
+  | 'RESOURCE_NOT_FOUND'     // when a resource doesn't exist
+  | 'INVALID_STATE_ERROR'    // when a variable or flow is in an invalid state
+  | 'INVALID_DATA_ERROR'     // when data has unexpected value
+  | 'VALIDATION_ERROR'       // when validation error happens
+  
+  // Errors for API responses
+  | 'BAD_REQUEST'            // when a request is invalid
+  | 'UNAUTHENTICATED'        // when a request is not authenticated
+  | 'UNAUTHORIZED'           // when a request is not authorized
+  | 'INTERNAL_SERVER_ERROR'  // when an internal server error occurs
+```
+
+## getErrorInfo
+
+Extract error information from an `AppError`.
+
+```ts
+import { getErrorInfo } from 'saas-maker';
+
+try {
+  // Some operation that might throw
+} catch (error) {
+  const errorInfo = getErrorInfo(error);
+  
+  if (errorInfo) {
+    console.log(`Error: ${errorInfo.message}, Code: ${errorInfo.code}`);
+  } else {
+    console.log('Unknown error:', error);
+  }
+}
+```
+
+## tryCatch
+
+A utility function to safely execute a function and return a Result type.
+
+```ts
+import { tryCatch } from 'saas-maker';
+
+const result = tryCatch(() => {
+  // Some operation that might throw
+  return 'success';
+});
+
+if (result.error) {
+  console.error('Operation failed:', result.error);
+} else {
+  console.log('Operation succeeded:', result.data);
+}
+```
+
+## throwOnError
+
+Execute a function and throw an error if it returns an error result.
+
+```ts
+import { throwOnError } from 'saas-maker';
+
+const fetchUser = async (id: string) => {
+  // Some operation that returns a Result
+  if (!id) {
+    return { data: null, error: new Error('Invalid ID') };
+  }
+  return { data: { id, name: 'John' }, error: null };
+};
+
+// Will throw if fetchUser returns an error
+const user = await throwOnError(fetchUser('123'), 'Failed to fetch user');
+
+// You can also customize the error
+const user2 = await throwOnError(
+  fetchUser('123'), 
+  () => new AppError('Failed to fetch user', { 
+    errorCode: 'RESOURCE_NOT_FOUND', 
+    httpStatus: 404 
+  })
+);
+```
+
+## logError
+
+Log an error with consistent formatting.
+
+```ts
+import { logError } from 'saas-maker';
+
+try {
+  // Some operation that might throw
+} catch (error) {
+  logError(error, 'Failed to process payment');
+}
+``` 

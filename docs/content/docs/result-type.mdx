@@ -1,0 +1,123 @@
+---
+title: Result Type
+description: A result type for handling success and failure cases
+---
+
+# Result Type
+
+SaaS Maker provides a `Result` type for handling success and failure cases in a type-safe way. This pattern helps avoid excessive try/catch blocks and makes error handling more explicit.
+
+## Basic Usage
+
+The `Result` type represents either a successful operation with data or a failed operation with an error.
+
+```ts
+import { Result } from 'saas-maker';
+
+// A function that returns a Result
+function divide(a: number, b: number): Result<number, Error> {
+  if (b === 0) {
+    return { data: null, error: new Error('Division by zero') };
+  }
+  return { data: a / b, error: null };
+}
+
+// Using the Result
+const result = divide(10, 2);
+
+if (result.error) {
+  console.error('Division failed:', result.error.message);
+} else {
+  console.log('Result:', result.data);
+}
+```
+
+## Result Type Definition
+
+The `Result` type is defined as follows:
+
+```ts
+type Success<T> = { data: T; error: null }
+type Failure<E> = { data: null; error: E }
+type Result<T, E = Error> = Success<T> | Failure<E>
+```
+
+## Working with Results
+
+SaaS Maker provides several utilities for working with Result types:
+
+### tryCatch
+
+Convert a function that might throw into one that returns a Result:
+
+```ts
+import { tryCatch } from 'saas-maker';
+
+const result = tryCatch(() => {
+  if (Math.random() > 0.5) {
+    throw new Error('Random failure');
+  }
+  return 'success';
+});
+
+// result is { data: 'success', error: null } or { data: null, error: Error }
+```
+
+### throwOnError
+
+Extract the data from a Result, throwing if there's an error:
+
+```ts
+import { throwOnError } from 'saas-maker';
+
+function fetchUserData(id: string): Result<User, Error> {
+  // Implementation...
+}
+
+// Will throw if fetchUserData returns an error
+const userData = throwOnError(fetchUserData('123'), 'Failed to fetch user data');
+
+// Now userData is guaranteed to be of type User
+console.log(userData.name);
+```
+
+### throwOnNull
+
+Check if data exists in a Result, throwing if it doesn't:
+
+```ts
+import { throwOnNull } from 'saas-maker';
+
+function findUser(id: string): Result<User | null, Error> {
+  // Implementation...
+}
+
+// Will throw if findUser returns { data: null, error: null }
+const user = throwOnNull(findUser('123'), 'User not found');
+
+// Now user is guaranteed to be of type User (not null)
+console.log(user.name);
+```
+
+## Combining with AppError
+
+You can use the Result type with `AppError` for more context in error cases:
+
+```ts
+import { Result, AppError } from 'saas-maker';
+
+function createUser(data: UserData): Result<User, AppError> {
+  if (!data.email) {
+    return { 
+      data: null, 
+      error: new AppError('Email is required', { 
+        errorCode: 'VALIDATION_ERROR',
+        httpStatus: 400
+      }) 
+    };
+  }
+  
+  // Create user...
+  return { data: newUser, error: null };
+}
+``` 
