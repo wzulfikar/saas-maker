@@ -4,7 +4,7 @@ import type { SeverityLevel } from '../src/types';
 
 // Mock Sentry Browser
 const mockCaptureException = mock(() => {});
-const mockFlush = mock(() => {});
+const mockFlush = mock(() => Promise.resolve());
 
 mock.module('@sentry/browser', () => ({
   captureException: mockCaptureException,
