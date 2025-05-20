@@ -1,5 +1,6 @@
 // Export all utilities from shared
 export * from './shared/error';
+export * from './shared/flags';
 export * from './shared/logger';
 export * from './shared/logError';
 export * from './shared/throwIfFalsy';

@@ -1,6 +1,6 @@
 {
   "name": "saas-maker",
-  "version": "0.0.11-rc.14",
+  "version": "0.0.11-rc.15",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "sideEffects": false,
@@ -44,6 +44,17 @@
     "@bugsnag/js": "^8.2.0",
     "@sentry/browser": "^9.17.0",
     "@sentry/node": "^9.17.0"
+  },
+  "peerDependenciesMeta": {
+    "@bugsnag/js": {
+      "optional": true
+    },
+    "@sentry/browser": {
+      "optional": true
+    },
+    "@sentry/node": {
+      "optional": true
+    }
   },
   "repository": {
     "type": "git",
