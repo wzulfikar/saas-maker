@@ -1,9 +1,4 @@
-import type { DefaultErrorCodes } from "../types"
-
-/**
- * Error codes from common errors or any string (helps with autocompletion)
- */
-export type ErrorCode = DefaultErrorCodes | (string & {})
+import type { ErrorCode } from "../types"
 
 export type AppErrorParams = {
   errorCode?: ErrorCode

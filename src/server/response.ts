@@ -1,4 +1,5 @@
-import type { ErrorCode, ErrorInfo } from "../shared/error";
+import type { ErrorInfo } from "../shared/error";
+import type { ErrorCode } from "../types";
 
 const JSON_HEADERS = { "Content-Type": "application/json" };
 

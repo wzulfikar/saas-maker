@@ -1,6 +1,13 @@
 import { describe, expect, test } from "bun:test";
 import { AppError, getErrorInfo } from "../src/shared/error";
 
+// Uncomment to test custom/extend/extendStrict errors
+// declare module "../src/types" {
+//   interface ErrorCodes {
+//     extend: "TEST_ERROR_CODE"
+//   }
+// }
+
 describe("AppError", () => {
   test("create an error with basic message", () => {
     const error = new AppError("Test error message");
