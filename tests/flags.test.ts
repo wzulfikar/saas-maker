@@ -1,15 +1,5 @@
 import { describe, test, expect } from 'bun:test'
-import { flags } from '../src'
-
-// Define the flag IDs used in tests
-type TestFlagId =
-  | 'feature-a'
-  | 'feature-b'
-  | 'feature-c'
-  | 'server-flag'
-  | 'server-flag-2'
-  | 'nonexistent'
-  | 'hello';
+import { flags } from '../src/flags'
 
 // Uncomment this to add type for flagId param
 // declare module '../src/shared/flags' {
@@ -66,44 +56,21 @@ describe('flags', () => {
     expect(result).toEqual(defaultFlag)
   })
 
-  test('fetch flag from server when flag is not found locally', async () => {
+  test('return false when flag is not found', async () => {
     flags.flags = {}
-    flags.userId = 'user123'
-
-    const serverFlag = { enabled: true, data: { source: 'server' } as Record<string, unknown> }
-    flags.fetchFlag = async (flagId, userId) => {
-      expect(flagId).toBe('server-flag')
-      expect(userId).toBe('user123')
-      return serverFlag
-    }
-
-    const result = flags.get('server-flag')
-    expect(result).toEqual(serverFlag)
+    expect(flags.get('server-flag')).toBeUndefined()
+    expect(flags.enabled('server-flag')).toEqual(false)
   })
 
-  test('store fetched flag in flags object', async () => {
+  test('store fetched flags in flags object', async () => {
     flags.flags = {}
     flags.userId = undefined
 
     const serverFlag = { enabled: true, data: { source: 'server' } as Record<string, unknown> }
     flags.fetchFlag = async () => serverFlag
 
-    flags.get('server-flag-2')
-    expect(flags.flags?.['server-flag-2']).toEqual(serverFlag)
-  })
-
-  test('typed flag ids can be used for type checking', () => {
-    function typedFunction(flagId: TestFlagId) {
-      return flagId;
-    }
-
-    // This should compile without errors
-    typedFunction('feature-a');
-    typedFunction('hello');
-
-    // This would cause a TypeScript error:
-    // typedFunction('invalid-id');
-
-    expect(true).toBe(true);
+    const flag = await flags.fetch('server-flag-2')
+    expect(flag).toEqual(serverFlag)
+    expect(flags.get('server-flag-2')).toEqual(serverFlag)
   })
 })

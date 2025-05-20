@@ -23,7 +23,7 @@ describe("throwOnNull", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(AppError);
       expect((error as AppError).message).toBe("Data not found");
-      expect((error as AppError).errorCode).toBe("DATA_NOT_FOUND_ERROR");
+      expect((error as AppError).errorCode).toBe("UNEXPECTED_NULL_RESULT");
     }
   });
   
@@ -39,7 +39,7 @@ describe("throwOnNull", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(AppError);
       expect((error as AppError).message).toBe("Data not found");
-      expect((error as AppError).errorCode).toBe("DATA_NOT_FOUND_ERROR");
+      expect((error as AppError).errorCode).toBe("UNEXPECTED_NULL_RESULT");
     }
   });
   
@@ -55,7 +55,7 @@ describe("throwOnNull", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(AppError);
       expect((error as AppError).message).toBe("Data not found");
-      expect((error as AppError).errorCode).toBe("DATA_NOT_FOUND_ERROR");
+      expect((error as AppError).errorCode).toBe("UNEXPECTED_NULL_RESULT");
     }
   });
   
@@ -71,7 +71,7 @@ describe("throwOnNull", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(AppError);
       expect((error as AppError).message).toBe("Data is null");
-      expect((error as AppError).errorCode).toBe("DATA_NOT_FOUND_ERROR");
+      expect((error as AppError).errorCode).toBe("UNEXPECTED_NULL_RESULT");
     }
   });
   
@@ -87,7 +87,7 @@ describe("throwOnNull", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(AppError);
       expect((error as AppError).message).toBe("Data is undefined");
-      expect((error as AppError).errorCode).toBe("DATA_NOT_FOUND_ERROR");
+      expect((error as AppError).errorCode).toBe("UNEXPECTED_NULL_RESULT");
     }
   });
   
@@ -103,7 +103,7 @@ describe("throwOnNull", () => {
     } catch (error) {
       expect(error).toBeInstanceOf(AppError);
       expect((error as AppError).message).toBe("Error detected");
-      expect((error as AppError).errorCode).toBe("DATA_NOT_FOUND_ERROR");
+      expect((error as AppError).errorCode).toBe("UNEXPECTED_NULL_RESULT");
     }
   });
   

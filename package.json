@@ -23,6 +23,11 @@
       "import": "./dist/client/index.js",
       "require": "./dist/client/index.js"
     },
+    "./flags": {
+      "types": "./dist/flags/index.d.ts",
+      "import": "./dist/flags/index.js",
+      "require": "./dist/flags/index.js"
+    },
     "./react": {
       "types": "./dist/react/index.d.ts",
       "import": "./dist/react/index.js",
@@ -50,6 +55,7 @@
     "@sentry/browser": "^9.17.0",
     "@sentry/node": "^9.17.0",
     "@types/react": "^19.1.4",
+    "posthog-js": "^1.245.0",
     "react": "^19.1.0"
   },
   "peerDependenciesMeta": {
@@ -63,6 +69,9 @@
       "optional": true
     },
     "@types/react": {
+      "optional": true
+    },
+    "posthog-js": {
       "optional": true
     },
     "react": {

@@ -8,9 +8,8 @@ import {
 	type ReactNode,
 	useContext,
 } from "react";
-import { flags } from "../shared/flags";
 
-import type { Flags, Flag } from "../shared/flags";
+import { type Flags, type Flag, flags } from "../flags/flags";
 
 type FlagsContextValue = {
 	flags?: Flags;
