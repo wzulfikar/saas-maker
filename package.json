@@ -1,6 +1,6 @@
 {
   "name": "saas-maker",
-  "version": "0.0.11-rc.15",
+  "version": "0.0.11-rc.16",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "sideEffects": false,
@@ -22,6 +22,11 @@
       "types": "./dist/client/index.d.ts",
       "import": "./dist/client/index.js",
       "require": "./dist/client/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js",
+      "require": "./dist/react/index.js"
     }
   },
   "scripts": {
@@ -43,7 +48,9 @@
   "peerDependencies": {
     "@bugsnag/js": "^8.2.0",
     "@sentry/browser": "^9.17.0",
-    "@sentry/node": "^9.17.0"
+    "@sentry/node": "^9.17.0",
+    "@types/react": "^19.1.4",
+    "react": "^19.1.0"
   },
   "peerDependenciesMeta": {
     "@bugsnag/js": {
@@ -53,6 +60,12 @@
       "optional": true
     },
     "@sentry/node": {
+      "optional": true
+    },
+    "@types/react": {
+      "optional": true
+    },
+    "react": {
       "optional": true
     }
   },

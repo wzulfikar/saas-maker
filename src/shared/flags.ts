@@ -1,20 +1,20 @@
-type Flag = {
+export type Flag = {
   enabled: boolean
   data?: Record<string, unknown>
 }
 
 // Module for type augmentation
 // This is a declaration namespace that consumers will merge with
-export namespace Flags {
+export namespace FlagsNamespace{
   // Flag ID is intentionally declared as a generic string
   // Consumers should augment this in their own code
   export type FlagId = string;
 }
 
 // This interface will be available for module augmentation
-interface Flags {
-  can: <T extends string>(flagId: T, defaultValue?: boolean) => Promise<boolean>
-  get: <T extends string, R extends Flag = Flag>(flagId: T, defaultValue?: R) => Promise<R>
+export interface Flags {
+  enabled: <T extends string>(flagId: T, defaultValue?: boolean) => boolean
+  get: <T extends string, R extends Flag = Flag>(flagId: T, defaultValue?: R) => R
   /**
    * User ID to fetch flag for. You can initiate the value at the start of your app.
    **/
@@ -30,48 +30,14 @@ interface Flags {
   fetchFlag?: (flagId: string, userId?: string) => Promise<Flag>
 }
 
-/**
- * Feature flags utility with TypeScript declaration merging support.
- * 
- * To add type-safe flag IDs, use module augmentation:
- * 
- * ```typescript
- * // Augment the module to add your app's feature flags
- * declare module 'path/to/flags' {
- *   // Define your valid flag IDs as a union type
- *   export type AppFlagId = 'dark-mode' | 'premium-features' | 'new-dashboard';
- *   
- *   // Add type checking for your flags
- *   namespace Flags {
- *     export interface FlagTypes {
- *       'dark-mode': { enabled: boolean; data?: { version: number } };
- *       'premium-features': { enabled: boolean; data?: { tier: string } };
- *     }
- *   }
- * }
- * 
- * // Then use with type safety:
- * import { flags, type AppFlagId } from 'path/to/flags';
- * 
- * // Type-safe flag IDs
- * await flags.can('dark-mode' as AppFlagId); // Works with intellisense
- * await flags.can('invalid-flag' as AppFlagId); // TypeScript error
- * ```
- */
 const flags: Flags = {
-  can: async (flagId, defaultValue) => {
-    const flag = await flags.get(flagId, { enabled: defaultValue ?? false } as Flag)
-    return flag.enabled
+  enabled: (flagId, defaultValue) => {
+    return flags.get(flagId, { enabled: defaultValue } as Flag).enabled
   },
-  get: async <T extends string, R extends Flag = Flag>(flagId: T, defaultValue?: R): Promise<R> => {
-    let flag = flags.flags?.[flagId]
-    if (typeof flag === 'undefined' && flags.fetchFlag) {
-      flag = await flags.fetchFlag(flagId, flags.userId)
-      flags.flags = { ...flags.flags, [flagId]: flag }
-    }
+  get: <T extends string, R extends Flag = Flag>(flagId: T, defaultValue?: R): R => {
+    const flag = flags.flags?.[flagId]
     return (flag ?? defaultValue) as R
   }
 };
 
 export { flags }
-export type { Flag, Flags }
