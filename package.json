@@ -1,6 +1,6 @@
 {
   "name": "saas-maker",
-  "version": "0.0.11-rc.16",
+  "version": "0.0.11-rc.17",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "sideEffects": false,
@@ -24,9 +24,9 @@
       "require": "./dist/client/index.js"
     },
     "./flags": {
-      "types": "./dist/flags/index.d.ts",
-      "import": "./dist/flags/index.js",
-      "require": "./dist/flags/index.js"
+      "types": "./dist/modules/flags/index.d.ts",
+      "import": "./dist/modules/flags/index.js",
+      "require": "./dist/modules/flags/index.js"
     },
     "./react": {
       "types": "./dist/react/index.d.ts",

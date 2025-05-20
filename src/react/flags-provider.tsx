@@ -9,7 +9,7 @@ import {
 	useContext,
 } from "react";
 
-import { type Flags, type Flag, flags } from "../flags/flags";
+import { type Flags, type Flag, flags } from "../modules/flags/flags";
 
 type FlagsContextValue = {
 	flags?: Flags;
