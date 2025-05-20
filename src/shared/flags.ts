@@ -3,18 +3,16 @@ export type Flag = {
   data?: Record<string, unknown>
 }
 
-// Module for type augmentation
-// This is a declaration namespace that consumers will merge with
-export namespace FlagsNamespace{
-  // Flag ID is intentionally declared as a generic string
-  // Consumers should augment this in their own code
-  export type FlagId = string;
+// biome-ignore lint/suspicious/noEmptyInterface: <explanation>
+export interface FlagIds {
 }
+
+type FlagId = FlagIds extends { id: infer U } ? U : string
 
 // This interface will be available for module augmentation
 export interface Flags {
-  enabled: <T extends string>(flagId: T, defaultValue?: boolean) => boolean
-  get: <T extends string, R extends Flag = Flag>(flagId: T, defaultValue?: R) => R
+  enabled: <T extends FlagId>(flagId: T, defaultValue?: boolean) => boolean
+  get: <T extends FlagId, R extends Flag = Flag>(flagId: T, defaultValue?: R) => R
   /**
    * User ID to fetch flag for. You can initiate the value at the start of your app.
    **/
@@ -31,11 +29,11 @@ export interface Flags {
 }
 
 const flags: Flags = {
-  enabled: (flagId, defaultValue) => {
+  enabled: <T extends FlagId>(flagId: T, defaultValue?: boolean): boolean => {
     return flags.get(flagId, { enabled: defaultValue } as Flag).enabled
   },
-  get: <T extends string, R extends Flag = Flag>(flagId: T, defaultValue?: R): R => {
-    const flag = flags.flags?.[flagId]
+  get: <T extends FlagId, R extends Flag = Flag>(flagId: T, defaultValue?: R): R => {
+    const flag = flags.flags?.[flagId as keyof typeof flags.flags]
     return (flag ?? defaultValue) as R
   }
 };
