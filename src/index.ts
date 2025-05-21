@@ -9,3 +9,4 @@ export * from './shared/throwOnError';
 export * from './shared/throwOnNull';
 export * from './shared/tryCatch';
 export * from './types'; 
+export * from './types-helper';

@@ -18,7 +18,7 @@ import {
  */
 export type User = {
 	/** Unique identifier for the user. This is the only required property for the user object. */
-	id: string;
+	id?: string;
 	username?: string;
 	name?: string;
 	email?: string;
@@ -26,10 +26,11 @@ export type User = {
 	role?: string;
 	customerId?: string;
 	subscriptionPlan?: string;
+	isConfirmed?: boolean;
 	metadata?: Record<string, any>;
 };
 
-type UserContextValue = { id?: undefined; isLoading?: boolean } | User;
+export type UserContextValue = User & { isLoading?: boolean };
 
 const UserContext = createContext<UserContextValue>({});
 
@@ -37,16 +38,14 @@ type UserProviderProps = {
 	children: ReactNode;
 	user?: User;
 	fetchUser?: () => Promise<User>;
-	onChangeListener?: (
-		callback: (userState?: User | null) => void,
-	) => () => void;
+	onAuthListener?: (callback: (userState?: User | null) => void) => () => void;
 };
 
 export function UserProvider({
 	children,
 	user,
 	fetchUser,
-	onChangeListener,
+	onAuthListener,
 }: UserProviderProps) {
 	const [userState, setUserState] = useState(
 		user || ({ isLoading: true } as UserContextValue),
@@ -60,8 +59,8 @@ export function UserProvider({
 				const fetchedUser = await fetchUser();
 				setUserState(fetchedUser);
 			}
-			if (onChangeListener) {
-				unsubscribe = onChangeListener((userState) =>
+			if (onAuthListener) {
+				unsubscribe = onAuthListener((userState) =>
 					setUserState(userState || {}),
 				);
 			}
@@ -69,10 +68,8 @@ export function UserProvider({
 
 		initUser();
 
-		return () => {
-			unsubscribe?.();
-		};
-	}, [fetchUser, onChangeListener]);
+		return () => unsubscribe?.();
+	}, [fetchUser, onAuthListener]);
 
 	return (
 		<UserContext.Provider value={userState}>{children}</UserContext.Provider>
