@@ -9,9 +9,20 @@ import {
 	useContext,
 } from "react";
 
-type User = {
+/**
+ * The user object returned by the `fetchUser` function. Includes fields for:
+ * - unique identifier (`id`)
+ * - SaaS related info (`customerId`, `subscriptionPlan`)
+ * - common info (`username`, `name`, `email`, `pictureUrl`, `role`)
+ * - additional custom info (`metadata`).
+ */
+export type User = {
+	/** Unique identifier for the user. This is the only required property for the user object. */
 	id: string;
+	username?: string;
+	name?: string;
 	email?: string;
+	pictureUrl?: string;
 	role?: string;
 	customerId?: string;
 	subscriptionPlan?: string;
