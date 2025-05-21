@@ -1,6 +1,6 @@
 {
   "name": "saas-maker",
-  "version": "0.0.11-rc.19",
+  "version": "0.0.11-rc.21",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "sideEffects": false,
@@ -23,21 +23,31 @@
       "import": "./dist/client/index.js",
       "require": "./dist/client/index.js"
     },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js",
+      "require": "./dist/react/index.js"
+    },
     "./flags": {
       "types": "./dist/packages/flags/index.d.ts",
       "import": "./dist/packages/flags/index.js",
       "require": "./dist/packages/flags/index.js"
     },
-    "./react": {
-      "types": "./dist/react/index.d.ts",
-      "import": "./dist/react/index.jsx",
-      "require": "./dist/react/index.jsx"
+    "./flags/react": {
+      "types": "./dist/packages/flags/react/index.d.ts",
+      "import": "./dist/packages/flags/react/index.js",
+      "require": "./dist/packages/flags/react/index.js"
+    },
+    "./flags/helper": {
+      "types": "./dist/packages/flags/helper/index.d.ts",
+      "import": "./dist/packages/flags/helper/index.js",
+      "require": "./dist/packages/flags/helper/index.js"
     }
   },
   "scripts": {
     "test": "bun test",
     "type-check": "tsc -p tsconfig.test.json",
-    "build": "tsc"
+    "build": "bunx rimraf dist && tsc"
   },
   "keywords": [
     "saas",

@@ -29,7 +29,7 @@ export interface Flags {
   fetchFlag?: (flagId: string, userId?: string) => Promise<Flag>
 }
 
-const flags: Flags = {
+export const flags: Flags = {
   enabled: <T extends FlagId>(flagId: T, defaultValue?: boolean): boolean => {
     return flags.get(flagId, { enabled: defaultValue } as Flag)?.enabled || false
   },
@@ -45,5 +45,3 @@ const flags: Flags = {
     return flag as T
   }
 };
-
-export { flags }

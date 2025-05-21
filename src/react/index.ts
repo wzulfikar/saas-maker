@@ -1,2 +1,1 @@
-export * from './flags-provider' 
-export * from './user-provider' 
+export { type User, UserProvider, useUser } from './user-provider' 

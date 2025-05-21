@@ -1,8 +1,8 @@
 import { describe, test, expect } from 'bun:test'
-import { flags } from '../src/flags'
+import { flags } from '../src/packages/flags'
 
 // Uncomment this to add type for flagId param
-// declare module '../src/shared/flags' {
+// declare module '../src/packages/flags' {
 //   interface FlagIds {
 //     id: 'feat-1' | 'feat-2'
 //   }
