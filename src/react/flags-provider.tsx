@@ -9,7 +9,7 @@ import {
 	useContext,
 } from "react";
 
-import { type Flags, type Flag, flags } from "../modules/flags/flags";
+import { type Flags, type Flag, flags } from "../packages/flags/flags";
 
 type FlagsContextValue = {
 	flags?: Flags;
@@ -21,7 +21,7 @@ const FlagsContext = createContext<FlagsContextValue>({});
 
 type FlagsProviderProps = {
 	children: ReactNode;
-	fetchFlags: (userId?: string) => Promise<Record<string, Flag>>;
+	fetchFlags?: (userId?: string) => Promise<Record<string, Flag>>;
 	fetchFlag?: (flagId: string) => Promise<Flag>;
 	userId?: string;
 	initialFlags?: Record<string, Flag>;
@@ -37,6 +37,12 @@ export function FlagsProvider({
 	const [isLoading, setIsLoading] = useState(true);
 	const [isFetching, setIsFetching] = useState(true);
 
+	if (!fetchFlags && !initialFlags) {
+		throw new TypeError(
+			"FlagsProvider: Either fetchFlags or initialFlags must be provided",
+		);
+	}
+
 	useEffect(() => {
 		flags.fetchFlag = fetchFlag;
 		const initFlags = async () => {
@@ -46,15 +52,17 @@ export function FlagsProvider({
 				setIsLoading(false);
 			}
 
-			try {
-				const fetchedFlags = await fetchFlags(userId);
-				flags.flags = fetchedFlags;
-			} catch (error) {
-				console.error(`FlagsProviderClient: Error fetching flags: ${error}`);
-				flags.flags = {};
-			} finally {
-				setIsLoading(false);
-				setIsFetching(false);
+			if (fetchFlags) {
+				try {
+					const fetchedFlags = await fetchFlags(userId);
+					flags.flags = fetchedFlags;
+				} catch (error) {
+					console.error(`FlagsProviderClient: Error fetching flags: ${error}`);
+					flags.flags = {};
+				} finally {
+					setIsLoading(false);
+					setIsFetching(false);
+				}
 			}
 		};
 		initFlags();
