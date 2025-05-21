@@ -26,18 +26,17 @@ export type User = {
 	role?: string;
 	customerId?: string;
 	subscriptionPlan?: string;
-	metadata?: Record<string, string>;
+	metadata?: Record<string, any>;
 };
 
-type UserContextValue =
-	| { id?: undefined; isLoading?: boolean; isFetching?: boolean }
-	| User;
+type UserContextValue = { id?: undefined; isLoading?: boolean } | User;
 
 const UserContext = createContext<UserContextValue>({});
 
 type UserProviderProps = {
 	children: ReactNode;
-	fetchUser: () => Promise<User>;
+	user?: User;
+	fetchUser?: () => Promise<User>;
 	onChangeListener?: (
 		callback: (userState?: User | null) => void,
 	) => () => void;
@@ -45,20 +44,29 @@ type UserProviderProps = {
 
 export function UserProvider({
 	children,
+	user,
 	fetchUser,
 	onChangeListener,
 }: UserProviderProps) {
-	const [user, setUser] = useState({} as UserContextValue);
+	const [userState, setUserState] = useState(
+		user || ({ isLoading: true } as UserContextValue),
+	);
 
 	useEffect(() => {
 		let unsubscribe: (() => void) | undefined;
+
 		const initUser = async () => {
-			const fetchedUser = await fetchUser();
-			setUser(fetchedUser);
+			if (fetchUser) {
+				const fetchedUser = await fetchUser();
+				setUserState(fetchedUser);
+			}
 			if (onChangeListener) {
-				unsubscribe = onChangeListener((userState) => setUser(userState || {}));
+				unsubscribe = onChangeListener((userState) =>
+					setUserState(userState || {}),
+				);
 			}
 		};
+
 		initUser();
 
 		return () => {
@@ -66,7 +74,9 @@ export function UserProvider({
 		};
 	}, [fetchUser, onChangeListener]);
 
-	return <UserContext.Provider value={user}>{children}</UserContext.Provider>;
+	return (
+		<UserContext.Provider value={userState}>{children}</UserContext.Provider>
+	);
 }
 
 export function useUser(): UserContextValue {
