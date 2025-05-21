@@ -10,7 +10,7 @@ export function throwIfNull<T>(
 ): asserts value is NonNullable<T> {
   if (value === null)
     throw new AppError(message, {
-      errorCode: 'INVALID_DATA_ERROR',
+      errorCode: 'UNEXPECTED_NULL_VALUE',
       ...appErrorParams,
     })
 }

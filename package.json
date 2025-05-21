@@ -1,6 +1,6 @@
 {
   "name": "saas-maker",
-  "version": "0.0.11-rc.14",
+  "version": "0.0.11-rc.21",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "sideEffects": false,
@@ -22,12 +22,32 @@
       "types": "./dist/client/index.d.ts",
       "import": "./dist/client/index.js",
       "require": "./dist/client/index.js"
+    },
+    "./react": {
+      "types": "./dist/react/index.d.ts",
+      "import": "./dist/react/index.js",
+      "require": "./dist/react/index.js"
+    },
+    "./flags": {
+      "types": "./dist/packages/flags/index.d.ts",
+      "import": "./dist/packages/flags/index.js",
+      "require": "./dist/packages/flags/index.js"
+    },
+    "./flags/react": {
+      "types": "./dist/packages/flags/react/index.d.ts",
+      "import": "./dist/packages/flags/react/index.js",
+      "require": "./dist/packages/flags/react/index.js"
+    },
+    "./flags/helper": {
+      "types": "./dist/packages/flags/helper/index.d.ts",
+      "import": "./dist/packages/flags/helper/index.js",
+      "require": "./dist/packages/flags/helper/index.js"
     }
   },
   "scripts": {
     "test": "bun test",
     "type-check": "tsc -p tsconfig.test.json",
-    "build": "tsc"
+    "build": "bunx rimraf dist && tsc"
   },
   "keywords": [
     "saas",
@@ -43,7 +63,30 @@
   "peerDependencies": {
     "@bugsnag/js": "^8.2.0",
     "@sentry/browser": "^9.17.0",
-    "@sentry/node": "^9.17.0"
+    "@sentry/node": "^9.17.0",
+    "@types/react": "^19.1.4",
+    "posthog-js": "^1.245.0",
+    "react": "^19.1.0"
+  },
+  "peerDependenciesMeta": {
+    "@bugsnag/js": {
+      "optional": true
+    },
+    "@sentry/browser": {
+      "optional": true
+    },
+    "@sentry/node": {
+      "optional": true
+    },
+    "@types/react": {
+      "optional": true
+    },
+    "posthog-js": {
+      "optional": true
+    },
+    "react": {
+      "optional": true
+    }
   },
   "repository": {
     "type": "git",

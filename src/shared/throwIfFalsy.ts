@@ -16,7 +16,7 @@ export function throwIfFalsy<T>(
     value === 0
   )
     throw new AppError(message, {
-      errorCode: 'INVALID_DATA_ERROR',
+      errorCode: 'UNEXPECTED_FALSY_VALUE',
       ...appErrorParams,
     })
 }

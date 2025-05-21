@@ -1,25 +1,34 @@
 export type DefaultErrorCodes =
-  // Errors for server-side flows
-  /** when calling an external API */
-  | 'API_ERROR'
-  /** when `data` from a result container does not exist */
-  | 'RESOURCE_NOT_FOUND'
-  /** when a variable or flow is in an invalid (illegal) state */
-  | 'INVALID_STATE_ERROR'
-  /** when a data has unexpected value */
-  | 'INVALID_DATA_ERROR'
-  /** when validation error happens (eg. via parseOrFail) */
-  | 'VALIDATION_ERROR'
+  /** Errors for server-side flows */
+  | 'API_ERROR'          // When calling an external API
+  | 'INVALID_DATA_ERROR' // When a data has unexpected value
+  | 'VALIDATION_ERROR'   // When validation error happens
 
-  // Errors for API responses
-  /** when a request is invalid (eg. invalid input) */
-  | 'BAD_REQUEST'
-  /** when a request is not authenticated */
-  | 'UNAUTHENTICATED'
-  /** when a request is not authorized */
-  | 'UNAUTHORIZED'
-  /** when an internal server error occurs */
-  | 'INTERNAL_SERVER_ERROR'
+  /** Error codes from throw utils */
+  | 'INVALID_STATE_ERROR'    // When a variable is in an invalid (illegal) state. Thrown by `throwIfInvalid`
+  | 'UNEXPECTED_FALSY_VALUE' // When a value is unexpectedly falsy. Thrown by `throwIfFalsy`
+  | 'UNEXPECTED_NULL_VALUE'  // When a value is unexpectedly null. Thrown by `throwIfNull`
+  | 'UNEXPECTED_NULL_RESULT' // When a result container has null data. Thrown by `throwOnNull`
+
+  /** Error codes from API responses */
+  | 'BAD_REQUEST'           // When a request is invalid (eg. invalid input)
+  | 'UNAUTHENTICATED'       // When a request is not authenticated
+  | 'UNAUTHORIZED'          // When a request is not authorized
+  | 'RESOURCE_NOT_FOUND'    // When a resource is not found
+  | 'INTERNAL_SERVER_ERROR' // When an internal server error occurs
+
+export interface ErrorCodes {
+  default: DefaultErrorCodes | (string & {})
+}
+
+/**
+ * Error codes from defautl errors. You can type your own errors via `merge` or `custom` field.
+ */
+export type ErrorCode =
+  ErrorCodes extends { custom: infer CustomError } ? CustomError
+  : ErrorCodes extends { extend: infer ExtendError } ? ErrorCodes['default'] | ExtendError
+  : ErrorCodes extends { extendStrict: infer ExtendStrictError } ? DefaultErrorCodes | ExtendStrictError
+  : ErrorCodes['default']
 
 type Success<T> = { data: T; error: null }
 type Failure<E> = { data: null; error: E }

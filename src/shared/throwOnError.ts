@@ -26,11 +26,13 @@ export function throwOnError<T>(
   message: string,
   appErrorParams?: AppErrorParams,
 ): T;
+
 export function throwOnError<T extends HasError>(
   objOrFn: T,
   message: string,
   appErrorParams?: AppErrorParams,
 ): asserts objOrFn is T & { error: null | undefined };
+
 export function throwOnError<T>(
   objOrFn: CanThrow<T> | HasError,
   message: string,
@@ -58,9 +60,7 @@ export function throwOnError<T>(
       ...appErrorParams,
     })
 
-  if (message) {
-    throw appError(message)
-  }
+  if (message) throw appError(message)
 
   if (
     obj.error instanceof Error ||

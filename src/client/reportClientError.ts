@@ -23,7 +23,7 @@ const reportClientError: ErrorReporter = async (error: unknown, params?: ReportE
       break;
     }
     default: {
-      return reportErrorShared(reporter, error, params);
+      await reportErrorShared(reporter, error, params);
     }
   }
 }
