@@ -1,13 +1,11 @@
+import type { Flags as FlagsConfig } from '../../types'
+
 export type Flag = {
   enabled: boolean
   data?: Record<string, unknown>
 }
 
-// biome-ignore lint/suspicious/noEmptyInterface: <explanation>
-export interface FlagIds {
-}
-
-type FlagId = FlagIds extends { id: infer U } ? U : string
+type FlagId = FlagsConfig extends { id: infer U } ? U : string
 
 // This interface will be available for module augmentation
 export interface Flags {

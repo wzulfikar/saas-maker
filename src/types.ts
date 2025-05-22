@@ -1,3 +1,17 @@
+// region: Configurable interfaces (by module augmentation)
+export interface AppUserFields {
+  default: DefaultAppUserFields
+}
+
+export interface ErrorCodes {
+  default: DefaultErrorCodes | (string & {})
+}
+
+// biome-ignore lint/suspicious/noEmptyInterface: <explanation>
+export interface Flags {
+}
+// endregion
+
 export type DefaultErrorCodes =
   /** Errors for server-side flows */
   | 'API_ERROR'          // When calling an external API
@@ -16,14 +30,6 @@ export type DefaultErrorCodes =
   | 'UNAUTHORIZED'          // When a request is not authorized
   | 'RESOURCE_NOT_FOUND'    // When a resource is not found
   | 'INTERNAL_SERVER_ERROR' // When an internal server error occurs
-
-export interface AppUserFields {
-  default: DefaultAppUserFields
-}
-
-export interface ErrorCodes {
-  default: DefaultErrorCodes | (string & {})
-}
 
 /**
  * Error codes from defautl errors. You can type your own errors via `merge` or `custom` field.
