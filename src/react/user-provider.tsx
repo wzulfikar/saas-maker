@@ -37,39 +37,34 @@ const UserContext = createContext<UserContextValue>({});
 type UserProviderProps = {
 	children: ReactNode;
 	user?: User;
-	fetchUser?: () => Promise<User>;
+	fetchUser?: () => Promise<User | null | undefined>;
 	onAuthListener?: (callback: (userState?: User | null) => void) => () => void;
 };
 
+/**
+ * Thin wrapper to manage the user state.
+ */
 export function UserProvider({
 	children,
 	user,
-	fetchUser,
 	onAuthListener,
 }: UserProviderProps) {
-	const [userState, setUserState] = useState(
-		user || ({ isLoading: true } as UserContextValue),
-	);
+	const [userState, setUserState] = useState(user || { isLoading: true });
 
 	useEffect(() => {
 		let unsubscribe: (() => void) | undefined;
-
 		const initUser = async () => {
-			if (fetchUser) {
-				const fetchedUser = await fetchUser();
-				setUserState(fetchedUser);
-			}
 			if (onAuthListener) {
-				unsubscribe = onAuthListener((userState) =>
-					setUserState(userState || {}),
-				);
+				// When authState is null, the user is not authenticated and we assign an empty object
+				// so the `id` is empty and the `isLoading` is no longer true.
+				unsubscribe = onAuthListener((authState) => {
+					setUserState(authState || {});
+				});
 			}
 		};
-
 		initUser();
-
 		return () => unsubscribe?.();
-	}, [fetchUser, onAuthListener]);
+	}, [onAuthListener]);
 
 	return (
 		<UserContext.Provider value={userState}>{children}</UserContext.Provider>
