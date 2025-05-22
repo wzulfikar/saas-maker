@@ -8,37 +8,19 @@ import {
 	type ReactNode,
 	useContext,
 } from "react";
+import type { AppUser } from "../types";
 
-/**
- * The user object returned by the `fetchUser` function. Includes fields for:
- * - unique identifier (`id`)
- * - SaaS related info (`customerId`, `subscriptionPlan`)
- * - common info (`username`, `name`, `email`, `pictureUrl`, `role`)
- * - additional custom info (`metadata`).
- */
-export type User = {
-	/** Unique identifier for the user. This is the only required property for the user object. */
-	id?: string;
-	username?: string;
-	name?: string;
-	email?: string;
-	pictureUrl?: string;
-	role?: string;
-	customerId?: string;
-	subscriptionPlan?: string;
-	isConfirmed?: boolean;
-	metadata?: Record<string, any>;
-};
+export type { AppUser }
 
-export type UserContextValue = User & { isLoading?: boolean };
+export type UserContextValue = AppUser & { isLoading?: boolean };
 
 const UserContext = createContext<UserContextValue>({});
 
 type UserProviderProps = {
 	children: ReactNode;
-	user?: User;
-	fetchUser?: () => Promise<User | null | undefined>;
-	onAuthListener?: (callback: (userState?: User | null) => void) => () => void;
+	user?: AppUser;
+	fetchUser?: () => Promise<AppUser | null | undefined>;
+	onAuthListener?: (callback: (userState?: AppUser | null) => void) => () => void;
 };
 
 /**

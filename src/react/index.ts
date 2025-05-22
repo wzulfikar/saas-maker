@@ -1,1 +1,1 @@
-export { type User, type UserContextValue, UserProvider, useUser } from './user-provider' 
+export { type AppUser, type UserContextValue, UserProvider, useUser } from './user-provider' 

@@ -17,6 +17,10 @@ export type DefaultErrorCodes =
   | 'RESOURCE_NOT_FOUND'    // When a resource is not found
   | 'INTERNAL_SERVER_ERROR' // When an internal server error occurs
 
+export interface AppUserFields {
+  default: DefaultAppUserFields
+}
+
 export interface ErrorCodes {
   default: DefaultErrorCodes | (string & {})
 }
@@ -57,3 +61,26 @@ export interface ErrorReporter extends ErrorReporterFn {
   reporter?: string;
   customReporter?: ErrorReporterFn;
 }
+
+interface DefaultAppUserFields {
+  /** Unique identifier for the user. This is the only required property for the user object. */
+  id?: string;
+  username?: string;
+  name?: string;
+  email?: string;
+  pictureUrl?: string;
+  role?: string;
+  customerId?: string;
+  subscriptionPlan?: string;
+  isConfirmed?: boolean;
+  metadata?: Record<string, any>;
+}
+
+/**
+ * The user object returned by the `fetchUser` function. Includes fields for:
+ * - unique identifier (`id`)
+ * - SaaS related info (`customerId`, `subscriptionPlan`)
+ * - common info (`username`, `name`, `email`, `pictureUrl`, `role`)
+ * - additional custom info (`metadata`).
+ */
+export type AppUser = AppUserFields extends { custom: infer CustomAppUser } ? CustomAppUser : AppUserFields["default"]

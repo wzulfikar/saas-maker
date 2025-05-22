@@ -4,7 +4,7 @@ import { AppError, getErrorInfo } from "../src/shared/error";
 // Uncomment to test custom/extend/extendStrict errors
 // declare module "../src/types" {
 //   interface ErrorCodes {
-//     extend: "TEST_ERROR_CODE"
+//     custom: "TEST_ERROR_CODE"
 //   }
 // }
 
