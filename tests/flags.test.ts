@@ -2,9 +2,9 @@ import { describe, test, expect } from 'bun:test'
 import { flags } from '../src/packages/flags'
 
 // Uncomment this to add type for flagId param
-// declare module '../src/packages/flags' {
-//   interface FlagIds {
-//     id: 'feat-1' | 'feat-2'
+// declare module '../src/types.ts' {
+//   interface Flags {
+//     id: 'feature-a'
 //   }
 // }
 
