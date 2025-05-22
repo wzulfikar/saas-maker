@@ -60,6 +60,7 @@
   "devDependencies": {
     "@types/bun": "^1.2.12",
     "@typescript/native-preview": "^7.0.0-dev.20250522.2",
+    "lefthook": "^1.11.13",
     "typescript": "^5.8.3"
   },
   "peerDependencies": {
