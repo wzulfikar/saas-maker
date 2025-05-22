@@ -1,14 +1,14 @@
 // region: Configurable interfaces (by module augmentation)
+// biome-ignore lint/suspicious/noEmptyInterface: <explanation>
 export interface AppUserFields {
-  default: DefaultAppUserFields
-}
-
-export interface ErrorCodes {
-  default: DefaultErrorCodes | (string & {})
 }
 
 // biome-ignore lint/suspicious/noEmptyInterface: <explanation>
 export interface Flags {
+}
+
+export interface ErrorCodes {
+  default: DefaultErrorCodes | (string & {})
 }
 // endregion
 
@@ -89,4 +89,4 @@ interface DefaultAppUserFields {
  * - common info (`username`, `name`, `email`, `pictureUrl`, `role`)
  * - additional custom info (`metadata`).
  */
-export type AppUser = AppUserFields extends { custom: infer CustomAppUser } ? CustomAppUser : AppUserFields["default"]
+export type AppUser = AppUserFields extends { id: infer CustomAppUser } ? CustomAppUser : DefaultAppUserFields
