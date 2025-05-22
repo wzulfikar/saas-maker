@@ -46,7 +46,8 @@
   },
   "scripts": {
     "test": "bun test",
-    "type-check": "tsc -p tsconfig.test.json",
+    "type-check": "tsgo -p tsconfig.test.json",
+    "check": "bunx concurrently 'bun type-check' 'bun test'",
     "build": "bunx rimraf dist && tsc"
   },
   "keywords": [
@@ -58,6 +59,7 @@
   "description": "Collection of utilities for building SaaS applications",
   "devDependencies": {
     "@types/bun": "^1.2.12",
+    "@typescript/native-preview": "^7.0.0-dev.20250522.2",
     "typescript": "^5.8.3"
   },
   "peerDependencies": {
