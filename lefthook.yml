@@ -5,5 +5,5 @@ pre-commit:
   jobs:
     - run: bun type-check
       glob: "*.{js,ts,jsx,tsx}"
-    - run: bun test
+    - run: bun test {staged_files}
       glob: "*.{js,ts,jsx,tsx}"
