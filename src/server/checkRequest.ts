@@ -1,4 +1,8 @@
-import { tryCatch } from '../shared/tryCatch';
+// TODO:
+// - [ ] type helper to infer response output so we can import the type from the route file into react file where we use api client
+// - [ ] example of using type helper in type-safe fetcher like `ky`
+// - [ ] add `.handle` to check request
+
 import { json } from './response';
 
 type CheckRequestOpt<T = any> = (req: Request) => Promise<T>
