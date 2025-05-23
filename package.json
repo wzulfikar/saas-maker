@@ -38,6 +38,11 @@
       "import": "./dist/packages/flags/helper/index.js",
       "require": "./dist/packages/flags/helper/index.js"
     },
+    "./notifier": {
+      "types": "./dist/packages/notifier/index.d.ts",
+      "import": "./dist/packages/notifier/index.js",
+      "require": "./dist/packages/notifier/index.js"
+    },
     "./react": {
       "types": "./dist/react/index.d.ts",
       "import": "./dist/react/index.js",

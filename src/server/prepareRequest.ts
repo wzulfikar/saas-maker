@@ -5,7 +5,7 @@
 
 import { json } from './response';
 
-type CheckRequestOpt<T = any> = (req: Request) => Promise<T>
+type PrepareRequestOpt<T = any> = (req: Request) => Promise<T>
 
 type ParserFn<T, R = T> = (payload: T) => Promise<R>;
 
@@ -17,21 +17,21 @@ type BaseContext = {
   form: any | null;
 };
 
-// Options type for checkRequest
-type CheckRequestOptions<
+// Options type for PrepareRequest
+type PrepareRequestOptions<
   TAuth = any,
   TExtra = any
 > = {
-  authenticate?: CheckRequestOpt<TAuth>;
-  getCustomerId?: CheckRequestOpt<{ customerId: string }>;
-  getSubscriptionId?: CheckRequestOpt<{ subscriptionId: string }>;
+  authenticate?: PrepareRequestOpt<TAuth>;
+  getCustomerId?: PrepareRequestOpt<{ customerId: string }>;
+  getSubscriptionId?: PrepareRequestOpt<{ subscriptionId: string }>;
   parseHeaders?: ParserFn<Record<string, string>, any>;
   parseBody?: ParserFn<any, any>;
   parseQuery?: ParserFn<Record<string, string>, any>;
   parseForm?: ParserFn<FormData, any>;
-  prepare?: CheckRequestOpt<TExtra>;
-  rateLimit?: CheckRequestOpt<boolean>;
-  cacheResponse?: CheckRequestOpt;
+  prepare?: PrepareRequestOpt<TExtra>;
+  rateLimit?: PrepareRequestOpt<boolean>;
+  cacheResponse?: PrepareRequestOpt;
   onError?: (error: unknown) => Promise<void>;
   onResponse?: (response: Response) => Promise<void>;
   logger?: {
@@ -41,20 +41,20 @@ type CheckRequestOptions<
 };
 
 // Helper type to infer context from options
-type InferContext<TOpts extends CheckRequestOptions> = BaseContext &
-  (TOpts['authenticate'] extends CheckRequestOpt<infer A> ? { auth: A } : {}) &
-  (TOpts['getCustomerId'] extends CheckRequestOpt<{ customerId: string }> ? { customerId: string } : {}) &
-  (TOpts['getSubscriptionId'] extends CheckRequestOpt<{ subscriptionId: string }> ? { subscriptionId: string } : {}) &
-  (TOpts['prepare'] extends CheckRequestOpt<infer E> ? E : {});
+type InferContext<TOpts extends PrepareRequestOptions> = BaseContext &
+  (TOpts['authenticate'] extends PrepareRequestOpt<infer A> ? { auth: A } : {}) &
+  (TOpts['getCustomerId'] extends PrepareRequestOpt<{ customerId: string }> ? { customerId: string } : {}) &
+  (TOpts['getSubscriptionId'] extends PrepareRequestOpt<{ subscriptionId: string }> ? { subscriptionId: string } : {}) &
+  (TOpts['prepare'] extends PrepareRequestOpt<infer E> ? E : {});
 
-export class CheckRequestError extends Error {
+export class PrepareRequestError extends Error {
   constructor(message: string) {
     super(message);
-    this.name = 'CheckRequestError';
+    this.name = 'PrepareRequestError';
   }
 }
 
-export function checkRequest<TOpts extends CheckRequestOptions>(
+export function PrepareRequest<TOpts extends PrepareRequestOptions>(
   opts: TOpts
 ): {
   handle: (
@@ -71,7 +71,7 @@ export function checkRequest<TOpts extends CheckRequestOptions>(
   return {
     handle: (handler) => async (originalRequest: Request) => {
       try {
-        const { req, ctx } = await prepareRequest(originalRequest, opts)
+        const { req, ctx } = await prepare(originalRequest, opts)
 
         // Call the handler with all parsed data
         const response = await handler(req, ctx);
@@ -104,7 +104,7 @@ export function checkRequest<TOpts extends CheckRequestOptions>(
   };
 }
 
-async function prepareRequest<TOpts extends CheckRequestOptions>(req: Request, opts: TOpts) {
+async function prepare<TOpts extends PrepareRequestOptions>(req: Request, opts: TOpts) {
   // Authentication
   let auth: any = undefined;
   if (opts.authenticate) {
@@ -142,7 +142,7 @@ async function prepareRequest<TOpts extends CheckRequestOptions>(req: Request, o
   // Rate limiting
   if (opts.rateLimit) {
     const isLimited = await opts.rateLimit(req);
-    if (isLimited) throw new CheckRequestError('Rate limit exceeded');
+    if (isLimited) throw new PrepareRequestError('Rate limit exceeded');
   }
 
   // Prepare request and get extra context
