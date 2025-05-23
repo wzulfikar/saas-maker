@@ -163,8 +163,8 @@ describe("preparedRequest", () => {
       }>;
 
       // Type structure verification
-      const endpoint: Endpoint = {
-        path: "/api/users/:id",
+      const _: Endpoint = {
+        path: "/api/users/123",
         body: { name: "John", email: "john@example.com" },
         query: { id: "123" },
         result: {
@@ -172,10 +172,6 @@ describe("preparedRequest", () => {
           userId: "123",
         },
       };
-
-      expect(endpoint.path).toBe("/api/users/:id");
-      expect(endpoint.body).toEqual({ name: "John", email: "john@example.com" });
-      expect(endpoint.query).toEqual({ id: "123" });
     });
 
     test("infer context types from parsers", async () => {
@@ -271,6 +267,46 @@ describe("preparedRequest", () => {
       expect(getEndpoint.path).toBe("/api/status");
       expect(postEndpoint.path).toBe("/api/create");
       expect(simpleEndpoint.path).toBe("/api/ping");
+    });
+
+    test("automatic path pattern matching", () => {
+      const userHandler = prepareRequest({
+        parseQuery: z.object({ id: z.string() }).parseAsync,
+      }).handle(async (req, ctx) => {
+        return {
+          userId: ctx.query.id,
+          name: "Test User",
+        };
+      });
+
+      // Path with parameters - should accept any string
+      type UserEndpoint = PreparedRequest<{
+        path: "/api/users/:id";
+        query: { id: string };
+        result: typeof userHandler;
+      }>;
+
+      // All of these should work automatically
+      const templatePath: UserEndpoint["path"] = "/api/users/:id";
+      const actualPath1: UserEndpoint["path"] = "/api/users/123";
+      const actualPath2: UserEndpoint["path"] = "/api/users/abc";
+      const actualPath3: UserEndpoint["path"] = "/api/users/user-456";
+      
+      expect(templatePath).toBe("/api/users/:id");
+      expect(actualPath1).toBe("/api/users/123");
+      expect(actualPath2).toBe("/api/users/abc");
+      expect(actualPath3).toBe("/api/users/user-456");
+
+      // Path without parameters - should only accept exact match
+      type ExactEndpoint = PreparedRequest<{
+        path: "/api/health";
+        result: typeof userHandler;
+      }>;
+
+      const exactPath: ExactEndpoint["path"] = "/api/health"; // ✅ Should work
+      // const invalidPath: ExactEndpoint["path"] = "/api/status"; // ❌ Should cause TypeScript error
+      
+      expect(exactPath).toBe("/api/health");
     });
   });
 

@@ -55,7 +55,56 @@ type InferContext<TOpts extends PrepareRequestOptions> = {
   // biome-ignore lint/complexity/noBannedTypes: <explanation>
   (TOpts['prepare'] extends PrepareRequestOpt<infer E> ? E : {});
 
-// Type helper for creating structured API endpoint definitions
+// Helper type to infer the return type from a handler function
+type InferHandlerReturn<T> = T extends { _returnType?: infer R } ? R : never;
+
+// Path pattern matching utilities (internal)
+type Split<S extends string, D extends string> = string extends S
+  ? string[]
+  : S extends ''
+  ? []
+  : S extends `${infer T}${D}${infer U}`
+  ? [T, ...Split<U, D>]
+  : [S];
+
+type MatchSegment<Template extends string, Actual extends string> = 
+  Template extends `:${string}` 
+    ? true 
+    : Template extends Actual 
+    ? true 
+    : false;
+
+type MatchSegments<
+  TemplateSegments extends readonly string[],
+  ActualSegments extends readonly string[]
+> = TemplateSegments extends readonly [infer TFirst, ...infer TRest]
+  ? ActualSegments extends readonly [infer AFirst, ...infer ARest]
+    ? TFirst extends string
+      ? AFirst extends string
+        ? MatchSegment<TFirst, AFirst> extends true
+          ? TRest extends readonly string[]
+            ? ARest extends readonly string[]
+              ? MatchSegments<TRest, ARest>
+              : false
+            : false
+          : false
+        : false
+      : false
+    : false
+  : TemplateSegments extends readonly []
+  ? ActualSegments extends readonly []
+    ? true
+    : false
+  : false;
+
+// Internal path matching utility
+type MatchPath<Template extends string, Actual extends string> = 
+  MatchSegments<Split<Template, '/'>, Split<Actual, '/'>> extends true ? Actual : never;
+
+// Helper type to check if a path contains parameters
+type HasParameters<T extends string> = T extends `${string}:${string}` ? true : false;
+
+// Enhanced PreparedRequest that supports path pattern matching
 export type PreparedRequest<T extends {
   path: string;
   // biome-ignore lint/suspicious/noExplicitAny: <explanation>
@@ -65,14 +114,12 @@ export type PreparedRequest<T extends {
   // biome-ignore lint/suspicious/noExplicitAny: <explanation>
   result: any;
 }> = {
-  path: T['path'];
+  // If path has parameters (:id), allow any string. Otherwise, only allow the exact path.
+  path: HasParameters<T['path']> extends true ? string : T['path'];
   body: T['body'];
   query: T['query'];
   result: InferHandlerReturn<T['result']>;
 };
-
-// Helper type to infer the return type from a handler function
-type InferHandlerReturn<T> = T extends { _returnType?: infer R } ? R : never;
 
 export class PrepareRequestError extends Error {
   constructor(message: string) {
