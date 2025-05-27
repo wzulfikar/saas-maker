@@ -25,19 +25,18 @@ export class AppError extends Error {
     this.errorCode = params?.errorCode
     this.httpStatus = params?.httpStatus
     this.report = params?.report
-    this.prettyLog = this.getLogMessage()
-
+    this.prettyLog = formatAppError(this)
     if (AppError.logger) AppError.logger({ error: this, message: this.prettyLog })
   }
+}
 
-  getLogMessage() {
-    let errorLog = `[AppError] error: "${this.message}"`
-    if (this.errorCode) errorLog += ` | code: ${this.errorCode}`
-    if (this.httpStatus) errorLog += ` | httpStatus: ${this.httpStatus}`
-    if (this.report) errorLog += ` | report: ${this.report}`
-    if (this.cause) errorLog += ` | cause: ${JSON.stringify(this.cause)}`
-    return errorLog
-  }
+export function formatAppError(error: AppError) {
+  let errorLog = `[AppError] error: "${error.message}"`
+  if (error.errorCode) errorLog += ` | code: ${error.errorCode}`
+  if (error.httpStatus) errorLog += ` | httpStatus: ${error.httpStatus}`
+  if (error.report) errorLog += ` | report: ${error.report}`
+  if (error.cause) errorLog += ` | cause: ${JSON.stringify(error.cause)}`
+  return errorLog
 }
 
 export type ErrorInfo = {

@@ -1,6 +1,6 @@
 {
   "name": "saas-maker",
-  "version": "0.0.13-rc.3",
+  "version": "0.0.13-rc.4",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "sideEffects": false,
