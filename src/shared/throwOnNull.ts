@@ -16,9 +16,10 @@ export function throwOnNull<T>(
   message: string,
   appErrorParams?: AppErrorParams,
 ): asserts obj is { data: NonNullable<T>; error: null } {
-  if (obj?.error || !obj?.data) {
+  if (obj.data === null) {
     throw new AppError(message, {
       errorCode: 'UNEXPECTED_NULL_RESULT',
+      cause: obj,
       ...appErrorParams,
     })
   }
