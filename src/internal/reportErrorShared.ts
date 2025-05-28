@@ -4,13 +4,16 @@ import type { ReportErrorParams } from '../types';
 const reportErrorShared = async (reporter: string, error: unknown, params?: ReportErrorParams) => {
   switch (reporter) {
     case 'bugsnag': {
-      await import('@bugsnag/js').then(async (Bugsnag) => {
-        Bugsnag.default.notify(error as any, (event) => {
+      try {
+        const Bugsnag = await import('@bugsnag/js')
+        Bugsnag.default.notify(error as Error, (event) => {
           if (params?.ctx) event.context = params.ctx;
           if (params?.level) event.severity = params.level as 'info' | 'warning' | 'error';
           if (params?.userId) event.setUser(params.userId);
         })
-      });
+      } catch (_importError) {
+        // Suppress import error. Happens when Bugsnag is not installed (eg. user doesn't use bugsnag).
+      }
       break;
     }
     case 'logger': {

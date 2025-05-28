@@ -14,12 +14,15 @@ const reportClientError: ErrorReporter = async (error: unknown, params?: ReportE
       if (params?.level) payload.level = params.level;
       if (params?.userId) payload.user = { id: params.userId };
 
-      await import('@sentry/browser').then(async (Sentry) => {
+      try {
+        const Sentry = await import('@sentry/browser')
         Sentry.captureException(error, payload)
         await Sentry.flush().catch((e) => {
           console.error('[saas-maker] reportClientError: `Sentry.flush` failed. error:', e)
         })
-      });
+      } catch (_importError) {
+        // Suppress import error. Happens when the user doesn't use the library.
+      }
       break;
     }
     default: {
