@@ -42,8 +42,17 @@ export const createRoute = (routeOptions: RouteOptions = {}) => {
 }
 
 export class RouteBuilder<TContext = EmptyContext> {
+  private prepareSteps: Array<(req: Request, ctx: unknown) => Promise<unknown>> = []
+  private parseSteps: Array<{
+    payload: unknown
+    parseFn: (req: Request, ctx: unknown) => Promise<unknown>
+  }> = []
+
   constructor(private routeOptions: RouteOptions) {
-    this.routeOptions = routeOptions
+    this.routeOptions = {
+      requestObject: (args) => args as Request,
+      ...routeOptions
+    }
   }
 
   prepare<TNewContext extends Record<string, unknown>>(
@@ -69,18 +78,71 @@ export class RouteBuilder<TContext = EmptyContext> {
   handle<TResponse>(
     handlerFn: (req: Request, ctx: TContext) => Promise<TResponse>
   ): RouteHandler<TContext, TResponse> {
-    // TODO: build ctx properly in later stages
-    const ctx = {} as TContext
+    const { onRequest, onResponse, onError, requestObject } = this.routeOptions
 
-    async function routeHandler(req: Request): Promise<TResponse> {
-      return handlerFn(req, ctx)
+    // Main route handler function
+    async function routeHandler(...args: unknown[]): Promise<TResponse> {
+      try {
+        // Extract request object using the requestObject mapper
+        const request = requestObject ? requestObject(args.length === 1 ? args[0] : args) : (args[0] as Request)
+        
+        // Call onRequest hook if provided
+        if (onRequest) {
+          await onRequest(request)
+        }
+
+        // For now, use empty context (will be built in later stages)
+        const context = {} as TContext
+
+        // Call the actual handler
+        const response = await handlerFn(request, context)
+
+        // Call onResponse hook if provided (need to create Response object)
+        if (onResponse) {
+          // Create a mock Response for the hook
+          const mockResponse = new Response(JSON.stringify(response), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          })
+          await onResponse(mockResponse)
+        }
+
+        return response
+      } catch (error) {
+        // Handle errors through the error hook
+        if (onError) {
+          await onError(error as Error)
+        }
+        
+        // Re-throw the error so it can be handled by the framework
+        throw error
+      }
     }
     
+    // Add invoke method for server-side calls
     routeHandler.invoke = async (contextOverride?: TContext): Promise<TResponse> => {
-      // For now, create a mock request for invoke
-      const mockRequest = new Request('http://localhost')
-      const finalContext = contextOverride || ctx
-      return handlerFn(mockRequest, finalContext)
+      try {
+        // Create a mock request for invoke
+        const mockRequest = new Request('http://localhost/test')
+        
+        // Use provided context or empty context
+        const context = contextOverride || ({} as TContext)
+        
+        // Call handler directly (skip onRequest/onResponse hooks for invoke)
+        return await handlerFn(mockRequest, context)
+      } catch (error) {
+        // Wrap non-RouteError errors
+        if (error instanceof RouteError) {
+          throw error
+        }
+        
+        throw new RouteError("Internal Server Error", {
+          errorCode: 'HANDLER_ERROR',
+          errorMessage: (error as Error).message,
+          httpStatus: 500,
+          cause: error as Error
+        })
+      }
     }
 
     return routeHandler as RouteHandler<TContext, TResponse>
