@@ -93,19 +93,17 @@ describe("Stage 1: Foundation Types & RouteError", () => {
     })
 
     test("throw error for prepare method (not implemented yet)", () => {
-      expect(() => {
-        createRoute().prepare(async (req, ctx) => {
-          return { role: "admin" }
-        })
-      }).toThrow("Not implemented yet")
+      const builder = createRoute().prepare(async (req, ctx) => {
+        return { role: "admin" }
+      })
+      expect(builder).toBeDefined()
     })
 
     test("throw error for parse method (not implemented yet)", () => {
-      expect(() => {
-        createRoute().parse({
-          body: async (body, ctx) => ({ name: "test" })
-        })
-      }).toThrow("Not implemented yet")
+      const builder = createRoute().parse({
+        body: async (body, ctx) => ({ name: "test" })
+      })
+      expect(builder).toBeDefined()
     })
   })
 
@@ -543,7 +541,7 @@ describe("Stage 3: Context Type System", () => {
     })
   })
 
-  test("prepare method now works (implemented in Stage 3)", () => {
+  test("prepare method is implemented and working", () => {
     const builder = createRoute().prepare(async (req, ctx) => {
       return { role: "admin" }
     })
@@ -552,9 +550,9 @@ describe("Stage 3: Context Type System", () => {
     expect(typeof builder.handle).toBe('function')
   })
 
-  test("parse method now works (implemented in Stage 3)", () => {
+  test("parse method is implemented and working", () => {
     const builder = createRoute().parse({
-      body: async (body: unknown, ctx: unknown) => ({ name: "test" })
+      body: async (body, ctx) => ({ name: "test" })
     })
     
     expect(builder).toBeDefined()
@@ -808,6 +806,357 @@ describe("Stage 4: Prepare Method", () => {
       await route(mockRequest)
       
       expect(executionOrder).toEqual(['onRequest', 'prepare', 'handle'])
+    })
+  })
+})
+
+describe("Stage 5: Parse Method Foundation", () => {
+  describe("Predefined Field Parsing", () => {
+    test("parse headers field", async () => {
+      const route = createRoute()
+        .parse({
+          headers: async (headers, ctx) => {
+            const userAgent = headers.get('user-agent')
+            return { userAgent }
+          }
+        })
+        .handle(async (req, ctx) => {
+          expect(ctx.parsed.headers).toEqual({ userAgent: 'test-agent' })
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test', {
+        headers: { 'user-agent': 'test-agent' }
+      })
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true })
+    })
+
+    test("parse body field with JSON", async () => {
+      const route = createRoute()
+        .parse({
+          body: async (body, ctx) => {
+            const parsed = body as { name: string, age: number }
+            if (!parsed.name) throw new Error("Name is required")
+            return { name: parsed.name, age: parsed.age }
+          }
+        })
+        .handle(async (req, ctx) => {
+          expect(ctx.parsed.body).toEqual({ name: 'John', age: 30 })
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test', {
+        method: 'POST',
+        body: JSON.stringify({ name: 'John', age: 30 }),
+        headers: { 'content-type': 'application/json' }
+      })
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true })
+    })
+
+    test("parse query parameters", async () => {
+      const route = createRoute()
+        .parse({
+          query: async (query, ctx) => {
+            const params = query as Record<string, string>
+            return { 
+              search: params.search || '',
+              page: parseInt(params.page || '1')
+            }
+          }
+        })
+        .handle(async (req, ctx) => {
+          expect(ctx.parsed.query).toEqual({ search: 'test', page: 2 })
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test?search=test&page=2')
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true })
+    })
+
+    test("parse cookies", async () => {
+      const route = createRoute()
+        .parse({
+          cookies: async (cookies, ctx) => {
+            const parsed = cookies as Record<string, string>
+            return { 
+              sessionId: parsed.sessionId,
+              theme: parsed.theme || 'light'
+            }
+          }
+        })
+        .handle(async (req, ctx) => {
+          expect(ctx.parsed.cookies).toEqual({ sessionId: '123', theme: 'dark' })
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test', {
+        headers: { 'cookie': 'sessionId=123; theme=dark' }
+      })
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true })
+    })
+
+    test("parse auth header", async () => {
+      const route = createRoute()
+        .parse({
+          auth: async (authHeader, ctx) => {
+            const token = authHeader.replace('Bearer ', '')
+            if (token === 'valid-token') {
+              return { userId: '123', role: 'admin' }
+            }
+            throw new Error('Invalid token')
+          }
+        })
+        .handle(async (req, ctx) => {
+          expect(ctx.parsed.auth).toEqual({ userId: '123', role: 'admin' })
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test', {
+        headers: { 'authorization': 'Bearer valid-token' }
+      })
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true })
+    })
+
+    test("parse method validation", async () => {
+      const route = createRoute()
+        .parse({
+          method: 'POST'
+        })
+        .handle(async (req, ctx) => {
+          expect(ctx.parsed.method).toBe('POST')
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test', { method: 'POST' })
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true })
+    })
+
+    test("parse path validation", async () => {
+      const route = createRoute()
+        .parse({
+          path: '/api/users'
+        })
+        .handle(async (req, ctx) => {
+          expect(ctx.parsed.path).toEqual({ matched: '/api/users', params: {} })
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/api/users')
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true })
+    })
+  })
+
+  describe("Custom Field Parsing", () => {
+    test("parse custom field", async () => {
+      const route = createRoute()
+        .parse({
+          customField: async (req, ctx) => {
+            const url = new URL(req.url)
+            return { host: url.hostname }
+          }
+        })
+        .handle(async (req, ctx) => {
+          expect(ctx.parsed.customField).toEqual({ host: 'localhost' })
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test')
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true })
+    })
+
+    test("parse multiple custom fields", async () => {
+      const route = createRoute()
+        .parse({
+          timestamp: async (req, ctx) => {
+            return { value: Date.now() }
+          },
+          requestId: async (req, ctx) => {
+            return { id: Math.random().toString(36) }
+          }
+        })
+        .handle(async (req, ctx) => {
+          expect(typeof ctx.parsed.timestamp.value).toBe('number')
+          expect(typeof ctx.parsed.requestId.id).toBe('string')
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test')
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true })
+    })
+  })
+
+  describe("Mixed Parsing", () => {
+    test("parse predefined and custom fields together", async () => {
+      const route = createRoute()
+        .parse({
+          auth: async (authHeader, ctx) => {
+            return { token: authHeader.replace('Bearer ', '') }
+          },
+          body: async (body, ctx) => {
+            const parsed = body as { name: string }
+            return { name: parsed.name }
+          },
+          customField: async (req, ctx) => {
+            return { timestamp: Date.now() }
+          }
+        })
+        .handle(async (req, ctx) => {
+          expect(ctx.parsed.auth.token).toBe('test-token')
+          expect(ctx.parsed.body.name).toBe('test')
+          expect(typeof ctx.parsed.customField.timestamp).toBe('number')
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test', {
+        method: 'POST',
+        body: JSON.stringify({ name: 'test' }),
+        headers: { 
+          'authorization': 'Bearer test-token',
+          'content-type': 'application/json'
+        }
+      })
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true })
+    })
+  })
+
+  describe("Parse Error Handling", () => {
+    test("wrap parse errors in RouteError", async () => {
+      const route = createRoute()
+        .parse({
+          body: async (body, ctx) => {
+            throw new Error("Invalid body format")
+          }
+        })
+        .handle(async (req, ctx) => {
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test', {
+        method: 'POST',
+        body: 'invalid json'
+      })
+
+      try {
+        await route(mockRequest)
+        expect(true).toBe(false) // Should not reach here
+      } catch (error) {
+        expect(error instanceof RouteError).toBe(true)
+        const routeError = error as RouteError
+        expect(routeError.errorCode).toBe('PARSE_ERROR')
+        expect(routeError.httpStatus).toBe(400)
+        expect(routeError.message).toBe("Bad Request: Error parsing `body`")
+        expect(routeError.errorMessage).toBe("Invalid body format")
+      }
+    })
+
+    test("auth parsing requires authorization header", async () => {
+      const route = createRoute()
+        .parse({
+          auth: async (authHeader, ctx) => {
+            return { token: authHeader }
+          }
+        })
+        .handle(async (req, ctx) => {
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test')
+
+      try {
+        await route(mockRequest)
+        expect(true).toBe(false) // Should not reach here
+      } catch (error) {
+        expect(error instanceof RouteError).toBe(true)
+        const routeError = error as RouteError
+        expect(routeError.errorCode).toBe('PARSE_ERROR')
+        expect(routeError.message).toBe("Bad Request: Error parsing `auth`")
+        expect(routeError.errorMessage).toBe("Authorization header is required")
+      }
+    })
+
+    test("method validation error returns 405", async () => {
+      const route = createRoute()
+        .parse({
+          method: 'POST'
+        })
+        .handle(async (req, ctx) => {
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test', { method: 'GET' })
+
+      try {
+        await route(mockRequest)
+        expect(true).toBe(false) // Should not reach here
+      } catch (error) {
+        expect(error instanceof RouteError).toBe(true)
+        const routeError = error as RouteError
+        expect(routeError.errorCode).toBe('PARSE_ERROR')
+        expect(routeError.httpStatus).toBe(405) // Method Not Allowed
+        expect(routeError.message).toBe("Bad Request: Error parsing `method`")
+      }
+    })
+
+    test("path validation error returns 404", async () => {
+      const route = createRoute()
+        .parse({
+          path: '/api/users'
+        })
+        .handle(async (req, ctx) => {
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/api/posts')
+
+      try {
+        await route(mockRequest)
+        expect(true).toBe(false) // Should not reach here
+      } catch (error) {
+        expect(error instanceof RouteError).toBe(true)
+        const routeError = error as RouteError
+        expect(routeError.errorCode).toBe('PARSE_ERROR')
+        expect(routeError.httpStatus).toBe(404) // Not Found
+        expect(routeError.message).toBe("Bad Request: Error parsing `path`")
+      }
+    })
+  })
+
+  describe("Integration with Prepare", () => {
+    test("parse steps have access to prepare context", async () => {
+      const route = createRoute()
+        .prepare(async (req, ctx) => {
+          return { userId: '123' }
+        })
+        .parse({
+          body: async (body, ctx) => {
+            // Should have access to prepare context
+            expect(ctx.userId).toBe('123')
+            const parsed = body as { message: string }
+            return { message: `${parsed.message} from user ${ctx.userId}` }
+          }
+        })
+        .handle(async (req, ctx) => {
+          expect(ctx.userId).toBe('123')
+          expect(ctx.parsed.body.message).toBe('hello from user 123')
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test', {
+        method: 'POST',
+        body: JSON.stringify({ message: 'hello' })
+      })
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true })
     })
   })
 })
