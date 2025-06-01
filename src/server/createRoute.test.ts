@@ -112,7 +112,7 @@ describe("Stage 1: Foundation Types & RouteError", () => {
   describe("Type Safety", () => {
     test("maintain type safety in handle function", async () => {
       // This test verifies TypeScript compilation
-      const route = createRoute().handle(async (req: Request, ctx: Record<string, never>) => {
+      const route = createRoute().handle(async (req, ctx) => {
         // ctx is properly typed as empty object
         expect(ctx).toEqual({})
         return { success: true, timestamp: Date.now() }
