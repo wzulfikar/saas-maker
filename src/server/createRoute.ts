@@ -29,9 +29,9 @@ type RouteOptions = {
   onResponse?: (res: Response, metadata: { timestamp: number, requestId: string, duration: number }) => Promise<void>
   onError?: (err: Error, metadata: { timestamp: number, requestId: string, stage: 'prepare' | 'parse' | 'handle' }) => Promise<void>
   requestObject?: (args: unknown) => Request
-  // New Stage 8 options
+  // Stage 8 options - renamed onPrepareComplete to onPrepareCompleted
   onPrepareStart?: (req: Request) => Promise<void>
-  onPrepareComplete?: (req: Request, context: Record<string, unknown>) => Promise<void>
+  onPrepareCompleted?: (req: Request, context: Record<string, unknown>) => Promise<void>
   onParseStart?: (req: Request, context: Record<string, unknown>) => Promise<void>
   onParseComplete?: (req: Request, context: Record<string, unknown>) => Promise<void>
   generateRequestId?: () => string
@@ -329,7 +329,7 @@ export class RouteBuilder<TContext = EmptyContext> {
   handle<TResponse>(
     handlerFn: (req: Request, ctx: TContext) => Promise<TResponse>
   ): RouteHandler<TContext, TResponse> {
-    const { onRequest, onResponse, onError, requestObject, onPrepareStart, onPrepareComplete, onParseStart, onParseComplete, generateRequestId } = this.routeOptions
+    const { onRequest, onResponse, onError, requestObject, onPrepareStart, onPrepareCompleted, onParseStart, onParseComplete, generateRequestId } = this.routeOptions
     const prepareSteps = this.prepareSteps
     const parseSteps = this.parseSteps
 
@@ -354,7 +354,8 @@ export class RouteBuilder<TContext = EmptyContext> {
         }
 
         // Build context by executing prepare steps
-        let context: Record<string, unknown> = {}
+        // Start with requestId in context
+        let context: Record<string, unknown> = { requestId }
         
         for (const prepareStep of prepareSteps) {
           try {
@@ -383,9 +384,9 @@ export class RouteBuilder<TContext = EmptyContext> {
           }
         }
 
-        // Call onPrepareComplete hook
-        if (onPrepareComplete) {
-          await onPrepareComplete(request, context)
+        // Call onPrepareCompleted hook (renamed from onPrepareComplete)
+        if (onPrepareCompleted) {
+          await onPrepareCompleted(request, context)
         }
 
         // Call onParseStart hook
@@ -502,7 +503,8 @@ export class RouteBuilder<TContext = EmptyContext> {
         }
         
         // Execute prepare steps to build context
-        let context: Record<string, unknown> = {}
+        // Start with requestId in context
+        let context: Record<string, unknown> = { requestId }
         
         for (const prepareStep of prepareSteps) {
           try {
@@ -529,9 +531,9 @@ export class RouteBuilder<TContext = EmptyContext> {
           }
         }
 
-        // Call onPrepareComplete hook for invoke
-        if (onPrepareComplete) {
-          await onPrepareComplete(mockRequest, context)
+        // Call onPrepareCompleted hook for invoke (renamed)
+        if (onPrepareCompleted) {
+          await onPrepareCompleted(mockRequest, context)
         }
 
         // Call onParseStart hook for invoke

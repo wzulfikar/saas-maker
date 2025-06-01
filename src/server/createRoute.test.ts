@@ -33,7 +33,7 @@ describe("Stage 1: Foundation Types & RouteError", () => {
     })
   })
 
-  describe("createRoute", () => {
+describe("createRoute", () => {
     test("create route with no options", () => {
       const routeBuilder = createRoute()
       expect(routeBuilder).toBeDefined()
@@ -144,7 +144,7 @@ describe("Stage 2: Basic Builder Pattern", () => {
     test("call onRequest hook before handler", async () => {
       let requestCalled = false
       
-      const route = createRoute({
+    const route = createRoute({
         onRequest: async (req) => {
           requestCalled = true
           expect(req instanceof Request).toBe(true)
@@ -1867,7 +1867,7 @@ describe("Stage 8: Request Lifecycle Integration", () => {
       const route = createRoute({
         onRequest: async () => { executionOrder.push('onRequest') },
         onPrepareStart: async () => { executionOrder.push('onPrepareStart') },
-        onPrepareComplete: async () => { executionOrder.push('onPrepareComplete') },
+        onPrepareCompleted: async () => { executionOrder.push('onPrepareCompleted') },
         onParseStart: async () => { executionOrder.push('onParseStart') },
         onParseComplete: async () => { executionOrder.push('onParseComplete') },
         onResponse: async () => { executionOrder.push('onResponse') }
@@ -1877,7 +1877,7 @@ describe("Stage 8: Request Lifecycle Integration", () => {
           return { role: 'admin' }
         })
         .parse({
-          body: async (body, ctx) => {
+          body: async (body: any, ctx: any) => {
             executionOrder.push('parse')
             return { parsed: true }
           }
@@ -1897,7 +1897,7 @@ describe("Stage 8: Request Lifecycle Integration", () => {
         'onRequest',
         'onPrepareStart',
         'prepare',
-        'onPrepareComplete',
+        'onPrepareCompleted',
         'onParseStart',
         'parse',
         'onParseComplete',
@@ -1911,10 +1911,10 @@ describe("Stage 8: Request Lifecycle Integration", () => {
       let prepareCompleteContext: any = null
       
       const route = createRoute({
-        onPrepareStart: async (req) => {
+        onPrepareStart: async (req: Request) => {
           prepareStartContext = 'no-context-yet'
         },
-        onPrepareComplete: async (req, context) => {
+        onPrepareCompleted: async (req: any, context: any) => {
           prepareCompleteContext = context
         }
       })
@@ -1929,7 +1929,7 @@ describe("Stage 8: Request Lifecycle Integration", () => {
       await route(mockRequest)
       
       expect(prepareStartContext).toBe('no-context-yet')
-      expect(prepareCompleteContext).toEqual({ userId: '123', role: 'admin' })
+      expect(prepareCompleteContext).toEqual({ requestId: expect.any(String), userId: '123', role: 'admin' })
     })
 
     test("parse hooks receive prepare context", async () => {
@@ -2053,7 +2053,7 @@ describe("Stage 8: Request Lifecycle Integration", () => {
       
       const route = createRoute({
         onPrepareStart: async () => { hookCalls.push('onPrepareStart') },
-        onPrepareComplete: async () => { hookCalls.push('onPrepareComplete') },
+        onPrepareCompleted: async () => { hookCalls.push('onPrepareCompleted') },
         onParseStart: async () => { hookCalls.push('onParseStart') },
         onParseComplete: async () => { hookCalls.push('onParseComplete') }
       })
@@ -2062,7 +2062,7 @@ describe("Stage 8: Request Lifecycle Integration", () => {
           return { role: 'admin' }
         })
         .parse({
-          headers: async (headers, ctx) => {
+          headers: async (headers: any, ctx: any) => {
             hookCalls.push('parse')
             return { userAgent: 'test' }
           }
@@ -2078,7 +2078,7 @@ describe("Stage 8: Request Lifecycle Integration", () => {
       expect(hookCalls).toEqual([
         'onPrepareStart',
         'prepare',
-        'onPrepareComplete',
+        'onPrepareCompleted',
         'onParseStart',
         'parse',
         'onParseComplete',
@@ -2091,7 +2091,7 @@ describe("Stage 8: Request Lifecycle Integration", () => {
       
       const route = createRoute({
         onPrepareStart: async () => { hookCalls.push('onPrepareStart') },
-        onPrepareComplete: async () => { hookCalls.push('onPrepareComplete') },
+        onPrepareCompleted: async () => { hookCalls.push('onPrepareCompleted') },
         onParseStart: async () => { hookCalls.push('onParseStart') },
         onParseComplete: async () => { hookCalls.push('onParseComplete') }
       })
