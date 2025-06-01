@@ -92,15 +92,19 @@ export class RouteBuilder<TContext = EmptyContext> {
     return newBuilder
   }
 
-  parse<TParsed extends Record<string, unknown>>(payload: {
-    headers?: (headers: Headers, ctx: TContext) => Promise<unknown>
-    body?: (body: unknown, ctx: TContext) => Promise<unknown>
-    query?: (query: unknown, ctx: TContext) => Promise<unknown>
-    cookies?: (cookies: unknown, ctx: TContext) => Promise<unknown>
-    auth?: (authorizationHeader: string, ctx: TContext) => Promise<unknown>
-    method?: RouteMethod | RouteMethod[]
-    path?: string
-  } | Record<string, (req: Request, ctx: TContext) => Promise<unknown>>): RouteBuilder<
+  parse<TParsed extends Record<string, unknown>>(
+    payload: 
+      | {
+          headers?: (headers: Headers, ctx: TContext) => Promise<unknown>
+          body?: (body: unknown, ctx: TContext) => Promise<unknown>
+          query?: (query: Record<string, string>, ctx: TContext) => Promise<unknown>
+          cookies?: (cookies: Record<string, string>, ctx: TContext) => Promise<unknown>
+          auth?: (authorizationHeader: string, ctx: TContext) => Promise<unknown>
+          method?: RouteMethod | RouteMethod[]
+          path?: string
+        }
+      | Record<string, (req: Request, ctx: TContext) => Promise<unknown>>
+  ): RouteBuilder<
     TContext extends { parsed: infer TExistingParsed }
       ? MergeContexts<ExtractNonParsed<TContext>, WithParsed<Record<string, never>, MergeParsed<TExistingParsed, TParsed>>>
       : WithParsed<TContext, TParsed>
@@ -111,159 +115,191 @@ export class RouteBuilder<TContext = EmptyContext> {
       parseFn: async (req: Request, ctx: unknown) => {
         const parsedResults: Record<string, unknown> = {}
         
-        // Handle predefined fields
-        if ('headers' in payload && payload.headers) {
-          try {
-            const result = await payload.headers(req.headers, ctx as TContext)
-            parsedResults.headers = result
-          } catch (error) {
-            throw new RouteError("Bad Request: Error parsing `headers`", {
-              errorCode: 'PARSE_ERROR',
-              errorMessage: (error as Error).message,
-              httpStatus: 400,
-              cause: error as Error
-            })
-          }
-        }
-
-        if ('body' in payload && payload.body) {
-          try {
-            // Parse request body
-            const bodyText = await req.text()
-            let bodyData: unknown
-            try {
-              bodyData = JSON.parse(bodyText)
-            } catch {
-              bodyData = bodyText // Fallback to text if not JSON
-            }
-            const result = await payload.body(bodyData, ctx as TContext)
-            parsedResults.body = result
-          } catch (error) {
-            throw new RouteError("Bad Request: Error parsing `body`", {
-              errorCode: 'PARSE_ERROR',
-              errorMessage: (error as Error).message,
-              httpStatus: 400,
-              cause: error as Error
-            })
-          }
-        }
-
-        if ('query' in payload && payload.query) {
-          try {
-            // Parse URL query parameters
-            const url = new URL(req.url)
-            const queryParams = Object.fromEntries(url.searchParams.entries())
-            const result = await payload.query(queryParams, ctx as TContext)
-            parsedResults.query = result
-          } catch (error) {
-            throw new RouteError("Bad Request: Error parsing `query`", {
-              errorCode: 'PARSE_ERROR',
-              errorMessage: (error as Error).message,
-              httpStatus: 400,
-              cause: error as Error
-            })
-          }
-        }
-
-        if ('cookies' in payload && payload.cookies) {
-          try {
-            // Parse cookies from header
-            const cookieHeader = req.headers.get('cookie') || ''
-            const cookies = Object.fromEntries(
-              cookieHeader.split(';').map(c => {
-                const [key, value] = c.trim().split('=')
-                return [key, value]
-              }).filter(([key]) => key)
-            )
-            const result = await payload.cookies(cookies, ctx as TContext)
-            parsedResults.cookies = result
-          } catch (error) {
-            throw new RouteError("Bad Request: Error parsing `cookies`", {
-              errorCode: 'PARSE_ERROR',
-              errorMessage: (error as Error).message,
-              httpStatus: 400,
-              cause: error as Error
-            })
-          }
-        }
-
-        if ('auth' in payload && payload.auth) {
-          try {
-            // Parse Authorization header
-            const authHeader = req.headers.get('authorization')
-            if (!authHeader) {
-              throw new Error("Authorization header is required")
-            }
-            const result = await payload.auth(authHeader, ctx as TContext)
-            parsedResults.auth = result
-          } catch (error) {
-            throw new RouteError("Bad Request: Error parsing `auth`", {
-              errorCode: 'PARSE_ERROR',
-              errorMessage: (error as Error).message,
-              httpStatus: 400,
-              cause: error as Error
-            })
-          }
-        }
-
-        if ('method' in payload && payload.method) {
-          try {
-            // Validate HTTP method
-            const method = req.method as RouteMethod
-            const allowedMethods = Array.isArray(payload.method) ? payload.method : [payload.method]
-            if (!allowedMethods.includes(method)) {
-              throw new Error(`Method ${method} not allowed. Expected: ${allowedMethods.join(', ')}`)
-            }
-            parsedResults.method = method
-          } catch (error) {
-            throw new RouteError("Bad Request: Error parsing `method`", {
-              errorCode: 'PARSE_ERROR',
-              errorMessage: (error as Error).message,
-              httpStatus: 405, // Method Not Allowed
-              cause: error as Error
-            })
-          }
-        }
-
-        if ('path' in payload && payload.path) {
-          try {
-            // Validate and parse path
-            const url = new URL(req.url)
-            const requestPath = url.pathname
-            const expectedPath = payload.path
-            
-            // Simple path matching for now (will be enhanced in Stage 10)
-            if (requestPath !== expectedPath) {
-              throw new Error(`Path ${requestPath} does not match expected path ${expectedPath}`)
-            }
-            parsedResults.path = { matched: expectedPath, params: {} }
-          } catch (error) {
-            throw new RouteError("Bad Request: Error parsing `path`", {
-              errorCode: 'PARSE_ERROR',
-              errorMessage: (error as Error).message,
-              httpStatus: 404, // Not Found
-              cause: error as Error
-            })
-          }
-        }
-
-        // Handle custom fields (Record<string, function>)
-        for (const [key, value] of Object.entries(payload)) {
-          if (['headers', 'body', 'query', 'cookies', 'auth', 'method', 'path'].includes(key)) {
-            continue // Skip predefined fields
+        // Check if this is a predefined fields object or custom fields object
+        const predefinedFields = ['headers', 'body', 'query', 'cookies', 'auth', 'method', 'path']
+        const hasAnyPredefinedField = Object.keys(payload).some(key => predefinedFields.includes(key))
+        
+        if (hasAnyPredefinedField) {
+          // Handle predefined fields with their specific parameter types
+          const predefinedPayload = payload as {
+            headers?: (headers: Headers, ctx: TContext) => Promise<unknown>
+            body?: (body: unknown, ctx: TContext) => Promise<unknown>
+            query?: (query: Record<string, string>, ctx: TContext) => Promise<unknown>
+            cookies?: (cookies: Record<string, string>, ctx: TContext) => Promise<unknown>
+            auth?: (authorizationHeader: string, ctx: TContext) => Promise<unknown>
+            method?: RouteMethod | RouteMethod[]
+            path?: string
           }
           
-          if (typeof value === 'function') {
+          // Handle predefined fields
+          if (predefinedPayload.headers) {
             try {
-              const result = await value(req, ctx as TContext)
-              parsedResults[key] = result
+              const result = await predefinedPayload.headers(req.headers, ctx as TContext)
+              parsedResults.headers = result
             } catch (error) {
-              throw new RouteError(`Bad Request: Error parsing \`${key}\``, {
+              throw new RouteError("Bad Request: Error parsing `headers`", {
                 errorCode: 'PARSE_ERROR',
                 errorMessage: (error as Error).message,
                 httpStatus: 400,
                 cause: error as Error
               })
+            }
+          }
+
+          if (predefinedPayload.body) {
+            try {
+              // Parse request body
+              const bodyText = await req.text()
+              let bodyData: unknown
+              try {
+                bodyData = JSON.parse(bodyText)
+              } catch {
+                bodyData = bodyText // Fallback to text if not JSON
+              }
+              const result = await predefinedPayload.body(bodyData, ctx as TContext)
+              parsedResults.body = result
+            } catch (error) {
+              throw new RouteError("Bad Request: Error parsing `body`", {
+                errorCode: 'PARSE_ERROR',
+                errorMessage: (error as Error).message,
+                httpStatus: 400,
+                cause: error as Error
+              })
+            }
+          }
+
+          if (predefinedPayload.query) {
+            try {
+              // Parse URL query parameters
+              const url = new URL(req.url)
+              const queryParams = Object.fromEntries(url.searchParams.entries())
+              const result = await predefinedPayload.query(queryParams, ctx as TContext)
+              parsedResults.query = result
+            } catch (error) {
+              throw new RouteError("Bad Request: Error parsing `query`", {
+                errorCode: 'PARSE_ERROR',
+                errorMessage: (error as Error).message,
+                httpStatus: 400,
+                cause: error as Error
+              })
+            }
+          }
+
+          if (predefinedPayload.cookies) {
+            try {
+              // Parse cookies from header with enhanced error handling
+              const cookieHeader = req.headers.get('cookie') || ''
+              const cookies = Object.fromEntries(
+                cookieHeader.split(';')
+                  .map(c => c.trim().split('='))
+                  .filter(([key, value]) => key && value !== undefined && key.length > 0)
+                  .map(([key, value]) => [key, value || ''])
+              )
+              const result = await predefinedPayload.cookies(cookies, ctx as TContext)
+              parsedResults.cookies = result
+            } catch (error) {
+              throw new RouteError("Bad Request: Error parsing `cookies`", {
+                errorCode: 'PARSE_ERROR',
+                errorMessage: (error as Error).message,
+                httpStatus: 400,
+                cause: error as Error
+              })
+            }
+          }
+
+          if (predefinedPayload.auth) {
+            try {
+              // Parse Authorization header
+              const authHeader = req.headers.get('authorization')
+              if (!authHeader) {
+                throw new Error("Authorization header is required")
+              }
+              const result = await predefinedPayload.auth(authHeader, ctx as TContext)
+              parsedResults.auth = result
+            } catch (error) {
+              throw new RouteError("Bad Request: Error parsing `auth`", {
+                errorCode: 'PARSE_ERROR',
+                errorMessage: (error as Error).message,
+                httpStatus: 400,
+                cause: error as Error
+              })
+            }
+          }
+
+          if (predefinedPayload.method) {
+            try {
+              // Validate HTTP method
+              const method = req.method as RouteMethod
+              const allowedMethods = Array.isArray(predefinedPayload.method) ? predefinedPayload.method : [predefinedPayload.method]
+              if (!allowedMethods.includes(method)) {
+                throw new Error(`Method ${method} not allowed. Expected: ${allowedMethods.join(', ')}`)
+              }
+              parsedResults.method = method
+            } catch (error) {
+              throw new RouteError("Bad Request: Error parsing `method`", {
+                errorCode: 'PARSE_ERROR',
+                errorMessage: (error as Error).message,
+                httpStatus: 405, // Method Not Allowed
+                cause: error as Error
+              })
+            }
+          }
+
+          if (predefinedPayload.path) {
+            try {
+              // Validate and parse path
+              const url = new URL(req.url)
+              const requestPath = url.pathname
+              const expectedPath = predefinedPayload.path
+              
+              // Simple path matching for now (will be enhanced in Stage 10)
+              if (requestPath !== expectedPath) {
+                throw new Error(`Path ${requestPath} does not match expected path ${expectedPath}`)
+              }
+              parsedResults.path = { matched: expectedPath, params: {} }
+            } catch (error) {
+              throw new RouteError("Bad Request: Error parsing `path`", {
+                errorCode: 'PARSE_ERROR',
+                errorMessage: (error as Error).message,
+                httpStatus: 404, // Not Found
+                cause: error as Error
+              })
+            }
+          }
+          
+          // Also handle any custom fields that might be mixed in
+          for (const [key, value] of Object.entries(payload)) {
+            if (!predefinedFields.includes(key) && typeof value === 'function') {
+              try {
+                const result = await (value as (req: Request, ctx: TContext) => Promise<unknown>)(req, ctx as TContext)
+                parsedResults[key] = result
+              } catch (error) {
+                throw new RouteError(`Bad Request: Error parsing \`${key}\``, {
+                  errorCode: 'PARSE_ERROR',
+                  errorMessage: (error as Error).message,
+                  httpStatus: 400,
+                  cause: error as Error
+                })
+              }
+            }
+          }
+        } else {
+          // Handle pure custom fields (Record<string, function>)
+          const customPayload = payload as Record<string, (req: Request, ctx: TContext) => Promise<unknown>>
+          
+          for (const [key, value] of Object.entries(customPayload)) {
+            if (typeof value === 'function') {
+              try {
+                const result = await value(req, ctx as TContext)
+                parsedResults[key] = result
+              } catch (error) {
+                throw new RouteError(`Bad Request: Error parsing \`${key}\``, {
+                  errorCode: 'PARSE_ERROR',
+                  errorMessage: (error as Error).message,
+                  httpStatus: 400,
+                  cause: error as Error
+                })
+              }
             }
           }
         }
