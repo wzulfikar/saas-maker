@@ -1142,7 +1142,7 @@ describe("Stage 5: Parse Method Foundation", () => {
             // Should have access to prepare context
             expect(ctx.userId).toBe('123')
             const parsed = body as { message: string }
-            return { message: `${parsed.message} from user ${ctx.userId}` }
+            return { message: data.message }
           }
         })
         .handle(async (req, ctx) => {
@@ -1775,6 +1775,447 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
       })
       const result = await route(mockRequest)
       expect(result).toEqual({ authorized: true })
+    })
+  })
+})
+
+describe("Stage 8: Request Lifecycle Integration", () => {
+  describe("Enhanced Lifecycle Hooks", () => {
+    test("lifecycle hooks receive metadata with timestamp and requestId", async () => {
+      const hookCalls: Array<{ hook: string, metadata: any }> = []
+      
+      const route = createRoute({
+        onRequest: async (req, metadata) => {
+          hookCalls.push({ hook: 'onRequest', metadata })
+          expect(typeof metadata.timestamp).toBe('number')
+          expect(typeof metadata.requestId).toBe('string')
+          expect(metadata.requestId).toMatch(/^req-[a-z0-9]+$/)
+        },
+        onResponse: async (res, metadata) => {
+          hookCalls.push({ hook: 'onResponse', metadata })
+          expect(typeof metadata.timestamp).toBe('number')
+          expect(typeof metadata.requestId).toBe('string')
+          expect(typeof metadata.duration).toBe('number')
+          expect(metadata.duration).toBeGreaterThanOrEqual(0)
+        },
+        generateRequestId: () => 'test-request-123'
+      }).handle(async (req, ctx) => {
+        return { success: true }
+      })
+
+      const mockRequest = new Request('http://localhost/test')
+      const result = await route(mockRequest)
+      
+      expect(result).toEqual({ success: true })
+      expect(hookCalls).toHaveLength(2)
+      expect(hookCalls[0].metadata.requestId).toBe('test-request-123')
+      expect(hookCalls[1].metadata.requestId).toBe('test-request-123')
+    })
+
+    test("onError hook receives stage information", async () => {
+      let errorMetadata: any = null
+      
+      const route = createRoute({
+        onError: async (err, metadata) => {
+          errorMetadata = metadata
+        }
+      })
+        .prepare(async () => { throw new Error("Prepare stage error") })
+        .handle(async () => ({ success: true }))
+
+      const mockRequest = new Request('http://localhost/test')
+      
+      try {
+        await route(mockRequest)
+        expect(true).toBe(false) // Should not reach here
+      } catch (error) {
+        expect(error instanceof RouteError).toBe(true)
+      }
+      
+      expect(errorMetadata).not.toBeNull()
+      expect(errorMetadata.stage).toBe('prepare')
+      expect(typeof errorMetadata.timestamp).toBe('number')
+      expect(typeof errorMetadata.requestId).toBe('string')
+    })
+
+    test("response headers include metadata", async () => {
+      let responseHeaders: Headers | null = null
+      
+      const route = createRoute({
+        onResponse: async (res, metadata) => {
+          responseHeaders = res.headers
+        },
+        generateRequestId: () => 'custom-id-456'
+      }).handle(async (req, ctx) => {
+        return { message: 'hello' }
+      })
+
+      const mockRequest = new Request('http://localhost/test')
+      await route(mockRequest)
+      
+      expect(responseHeaders).not.toBeNull()
+      expect(responseHeaders!.get('X-Request-ID')).toBe('custom-id-456')
+      expect(responseHeaders!.get('X-Duration')).not.toBeNull()
+      expect(Number.parseInt(responseHeaders!.get('X-Duration')!)).toBeGreaterThanOrEqual(0)
+    })
+  })
+
+  describe("Stage-Specific Lifecycle Hooks", () => {
+    test("prepare lifecycle hooks execute in correct order", async () => {
+      const executionOrder: string[] = []
+      
+      const route = createRoute({
+        onRequest: async () => { executionOrder.push('onRequest') },
+        onPrepareStart: async () => { executionOrder.push('onPrepareStart') },
+        onPrepareComplete: async () => { executionOrder.push('onPrepareComplete') },
+        onParseStart: async () => { executionOrder.push('onParseStart') },
+        onParseComplete: async () => { executionOrder.push('onParseComplete') },
+        onResponse: async () => { executionOrder.push('onResponse') }
+      })
+        .prepare(async (req, ctx) => {
+          executionOrder.push('prepare')
+          return { role: 'admin' }
+        })
+        .parse({
+          body: async (body, ctx) => {
+            executionOrder.push('parse')
+            return { parsed: true }
+          }
+        })
+        .handle(async (req, ctx) => {
+          executionOrder.push('handle')
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test', {
+        method: 'POST',
+        body: JSON.stringify({ test: 'data' })
+      })
+      await route(mockRequest)
+      
+      expect(executionOrder).toEqual([
+        'onRequest',
+        'onPrepareStart',
+        'prepare',
+        'onPrepareComplete',
+        'onParseStart',
+        'parse',
+        'onParseComplete',
+        'handle',
+        'onResponse'
+      ])
+    })
+
+    test("prepare hooks receive correct context", async () => {
+      let prepareStartContext: any = null
+      let prepareCompleteContext: any = null
+      
+      const route = createRoute({
+        onPrepareStart: async (req) => {
+          prepareStartContext = 'no-context-yet'
+        },
+        onPrepareComplete: async (req, context) => {
+          prepareCompleteContext = context
+        }
+      })
+        .prepare(async (req, ctx) => {
+          return { userId: '123', role: 'admin' }
+        })
+        .handle(async (req, ctx) => {
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test')
+      await route(mockRequest)
+      
+      expect(prepareStartContext).toBe('no-context-yet')
+      expect(prepareCompleteContext).toEqual({ userId: '123', role: 'admin' })
+    })
+
+    test("parse hooks receive prepare context", async () => {
+      let parseStartContext: any = null
+      let parseCompleteContext: any = null
+      
+      const route = createRoute({
+        onParseStart: async (req, context) => {
+          parseStartContext = context
+        },
+        onParseComplete: async (req, context) => {
+          parseCompleteContext = context
+        }
+      })
+        .prepare(async (req, ctx) => {
+          return { prepared: true }
+        })
+        .parse({
+          body: async (body, ctx) => {
+            return { name: 'test' }
+          }
+        })
+        .handle(async (req, ctx) => {
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test', {
+        method: 'POST',
+        body: JSON.stringify({ name: 'test' })
+      })
+      await route(mockRequest)
+      
+      expect(parseStartContext).toEqual({ prepared: true })
+      expect(parseCompleteContext.prepared).toBe(true)
+      expect(parseCompleteContext.parsed).toEqual({ body: { name: 'test' } })
+    })
+  })
+
+  describe("Error Propagation Enhancement", () => {
+    test("errors in different stages are correctly identified", async () => {
+      const errorStages: string[] = []
+      
+      const prepareErrorRoute = createRoute({
+        onError: async (err, metadata) => {
+          errorStages.push(metadata.stage)
+        }
+      })
+        .prepare(async () => { throw new Error("Prepare error") })
+        .handle(async () => ({ success: true }))
+
+      const parseErrorRoute = createRoute({
+        onError: async (err, metadata) => {
+          errorStages.push(metadata.stage)
+        }
+      })
+        .parse({
+          body: async () => { throw new Error("Parse error") }
+        })
+        .handle(async () => ({ success: true }))
+
+      const handleErrorRoute = createRoute({
+        onError: async (err, metadata) => {
+          errorStages.push(metadata.stage)
+        }
+      }).handle(async () => { 
+        throw new Error("Handle error") 
+      })
+
+      const mockRequest = new Request('http://localhost/test', {
+        method: 'POST',
+        body: '{}'
+      })
+
+      // Test prepare error
+      try { await prepareErrorRoute(mockRequest) } catch {}
+      
+      // Test parse error  
+      try { await parseErrorRoute(mockRequest) } catch {}
+      
+      // Test handle error
+      try { await handleErrorRoute(mockRequest) } catch {}
+      
+      expect(errorStages).toEqual(['prepare', 'parse', 'handle'])
+    })
+
+    test("RouteError preservation through error hooks", async () => {
+      let capturedError: Error | null = null
+      
+      const customRouteError = new RouteError("Custom validation error", {
+        errorCode: 'VALIDATION_ERROR',
+        errorMessage: 'Invalid input data',
+        httpStatus: 422
+      })
+
+      const route = createRoute({
+        onError: async (err, metadata) => {
+          capturedError = err
+        }
+      })
+        .prepare(async () => {
+          throw customRouteError
+        })
+        .handle(async () => ({ success: true }))
+
+      const mockRequest = new Request('http://localhost/test')
+      
+      try {
+        await route(mockRequest)
+        expect(true).toBe(false) // Should not reach here
+      } catch (error) {
+        expect(error).toBe(customRouteError)
+      }
+      
+      expect(capturedError).toBe(customRouteError)
+    })
+  })
+
+  describe("Invoke Method Lifecycle Integration", () => {
+    test("invoke method triggers prepare/parse lifecycle hooks", async () => {
+      const hookCalls: string[] = []
+      
+      const route = createRoute({
+        onPrepareStart: async () => { hookCalls.push('onPrepareStart') },
+        onPrepareComplete: async () => { hookCalls.push('onPrepareComplete') },
+        onParseStart: async () => { hookCalls.push('onParseStart') },
+        onParseComplete: async () => { hookCalls.push('onParseComplete') }
+      })
+        .prepare(async () => {
+          hookCalls.push('prepare')
+          return { role: 'admin' }
+        })
+        .parse({
+          headers: async (headers, ctx) => {
+            hookCalls.push('parse')
+            return { userAgent: 'test' }
+          }
+        })
+        .handle(async (req, ctx) => {
+          hookCalls.push('handle')
+          return { success: true }
+        })
+
+      const result = await route.invoke()
+      
+      expect(result).toEqual({ success: true })
+      expect(hookCalls).toEqual([
+        'onPrepareStart',
+        'prepare',
+        'onPrepareComplete',
+        'onParseStart',
+        'parse',
+        'onParseComplete',
+        'handle'
+      ])
+    })
+
+    test("invoke with context override skips lifecycle hooks", async () => {
+      const hookCalls: string[] = []
+      
+      const route = createRoute({
+        onPrepareStart: async () => { hookCalls.push('onPrepareStart') },
+        onPrepareComplete: async () => { hookCalls.push('onPrepareComplete') },
+        onParseStart: async () => { hookCalls.push('onParseStart') },
+        onParseComplete: async () => { hookCalls.push('onParseComplete') }
+      })
+        .prepare(async () => {
+          hookCalls.push('prepare')
+          return { role: 'admin' }
+        })
+        .handle(async (req, ctx) => {
+          hookCalls.push('handle')
+          return { context: ctx }
+        })
+
+      // Use type assertion for complex context type
+      const customContext = { customField: 'value' } as any
+      const result = await route.invoke(customContext)
+      
+      expect(hookCalls).toEqual(['handle']) // Only handle should be called
+      expect(result.context.customField).toBe('value')
+    })
+
+    test("invoke error handling includes metadata", async () => {
+      let errorMetadata: any = null
+      
+      const route = createRoute({
+        onError: async (err, metadata) => {
+          errorMetadata = metadata
+        },
+        generateRequestId: () => 'invoke-test-id'
+      })
+        .parse({
+          body: async () => { throw new Error("Parse error in invoke") }
+        })
+        .handle(async () => ({ success: true }))
+
+      try {
+        await route.invoke()
+        expect(true).toBe(false) // Should not reach here
+      } catch (error) {
+        expect(error instanceof RouteError).toBe(true)
+      }
+      
+      expect(errorMetadata).not.toBeNull()
+      expect(errorMetadata.stage).toBe('parse')
+      expect(errorMetadata.requestId).toBe('invoke-test-id')
+    })
+  })
+
+  describe("Performance and Optimization", () => {
+    test("request duration tracking is accurate", async () => {
+      let measuredDuration: number = 0
+      const delayMs = 50
+      
+      const route = createRoute({
+        onResponse: async (res, metadata) => {
+          measuredDuration = metadata.duration
+        }
+      })
+        .prepare(async () => {
+          // Simulate some processing time
+          await new Promise(resolve => setTimeout(resolve, delayMs))
+          return { processed: true }
+        })
+        .handle(async () => ({ success: true }))
+
+      const mockRequest = new Request('http://localhost/test')
+      await route(mockRequest)
+      
+      expect(measuredDuration).toBeGreaterThanOrEqual(delayMs - 10) // Allow some variance
+      expect(measuredDuration).toBeLessThan(delayMs + 50) // Reasonable upper bound
+    })
+
+    test("custom request ID generation works correctly", async () => {
+      let generatedIds: string[] = []
+      let callCount = 0
+      
+      const route = createRoute({
+        generateRequestId: () => `custom-${++callCount}`,
+        onRequest: async (req, metadata) => {
+          generatedIds.push(metadata.requestId)
+        }
+      }).handle(async () => ({ success: true }))
+
+      const mockRequest = new Request('http://localhost/test')
+      
+      await route(mockRequest)
+      await route(mockRequest)
+      
+      expect(generatedIds).toEqual(['custom-1', 'custom-2'])
+    })
+  })
+
+  describe("Backward Compatibility", () => {
+    test("existing lifecycle hooks still work without metadata", async () => {
+      let legacyHooksCalled = 0
+      
+      // Test that existing hooks that don't expect metadata still work
+      const route = createRoute({
+        onRequest: async (req) => { 
+          legacyHooksCalled++
+          expect(req instanceof Request).toBe(true)
+        },
+        onResponse: async (res) => { 
+          legacyHooksCalled++
+          expect(res instanceof Response).toBe(true)
+        },
+        onError: async (err) => { 
+          legacyHooksCalled++
+          expect(err instanceof Error).toBe(true)
+        }
+      })
+        .prepare(async () => {
+          throw new Error("Test error")
+        })
+        .handle(async () => ({ success: true }))
+
+      const mockRequest = new Request('http://localhost/test')
+      
+      try {
+        await route(mockRequest)
+      } catch (error) {
+        // Expected error
+      }
+      
+      expect(legacyHooksCalled).toBe(2) // onRequest and onError should be called
     })
   })
 })
