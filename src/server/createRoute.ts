@@ -127,6 +127,8 @@ export class RouteBuilder<TContext = EmptyContext> {
     handlerFn: (req: Request, ctx: TContext) => Promise<TResponse>
   ): RouteHandler<TContext, TResponse> {
     const { onRequest, onResponse, onError, requestObject } = this.routeOptions
+    const prepareSteps = this.prepareSteps
+    const parseSteps = this.parseSteps
 
     // Main route handler function
     async function routeHandler(...args: unknown[]): Promise<TResponse> {
@@ -139,11 +141,61 @@ export class RouteBuilder<TContext = EmptyContext> {
           await onRequest(request)
         }
 
-        // For now, use empty context (will be built properly in later stages)
-        const context = {} as TContext
+        // Build context by executing prepare steps
+        let context: Record<string, unknown> = {}
+        
+        for (const prepareStep of prepareSteps) {
+          try {
+            const result = await prepareStep(request, context)
+            // Merge returned context (if any) into existing context
+            if (result && typeof result === 'object') {
+              context = { ...context, ...result }
+            }
+          } catch (error) {
+            // Wrap prepare errors in RouteError
+            if (error instanceof RouteError) {
+              throw error
+            }
+            
+            throw new RouteError("Bad Request: Error preparing request handler", {
+              errorCode: 'PREPARE_ERROR',
+              errorMessage: (error as Error).message,
+              httpStatus: 400,
+              cause: error as Error
+            })
+          }
+        }
 
-        // Call the actual handler
-        const response = await handlerFn(request, context)
+        // Execute parse steps (placeholder for Stage 5)
+        for (const parseStep of parseSteps) {
+          try {
+            // TODO: implement actual parsing in Stage 5
+            const result = await parseStep.parseFn(request, context)
+            // For now, just placeholder logic
+            if (result && typeof result === 'object') {
+              if (!context.parsed) {
+                context.parsed = {}
+              }
+              // This is simplified - actual parsing will be more sophisticated
+              Object.assign(context.parsed as Record<string, unknown>, result as Record<string, unknown>)
+            }
+          } catch (error) {
+            // Wrap parse errors in RouteError
+            if (error instanceof RouteError) {
+              throw error
+            }
+            
+            throw new RouteError("Bad Request: Error parsing request", {
+              errorCode: 'PARSE_ERROR',
+              errorMessage: (error as Error).message,
+              httpStatus: 400,
+              cause: error as Error
+            })
+          }
+        }
+
+        // Call the actual handler with built context
+        const response = await handlerFn(request, context as TContext)
 
         // Call onResponse hook if provided (need to create Response object)
         if (onResponse) {
@@ -173,11 +225,60 @@ export class RouteBuilder<TContext = EmptyContext> {
         // Create a mock request for invoke
         const mockRequest = new Request('http://localhost/test')
         
-        // Use provided context or empty context
-        const context = contextOverride || ({} as TContext)
+        if (contextOverride) {
+          // Use provided context directly (skip prepare/parse execution)
+          return await handlerFn(mockRequest, contextOverride)
+        }
         
-        // Call handler directly (skip onRequest/onResponse hooks for invoke)
-        return await handlerFn(mockRequest, context)
+        // Execute prepare steps to build context
+        let context: Record<string, unknown> = {}
+        
+        for (const prepareStep of prepareSteps) {
+          try {
+            const result = await prepareStep(mockRequest, context)
+            if (result && typeof result === 'object') {
+              context = { ...context, ...result }
+            }
+          } catch (error) {
+            if (error instanceof RouteError) {
+              throw error
+            }
+            
+            throw new RouteError("Internal Server Error: Error in prepare step", {
+              errorCode: 'PREPARE_ERROR',
+              errorMessage: (error as Error).message,
+              httpStatus: 500,
+              cause: error as Error
+            })
+          }
+        }
+
+        // Execute parse steps (placeholder)
+        for (const parseStep of parseSteps) {
+          try {
+            const result = await parseStep.parseFn(mockRequest, context)
+            if (result && typeof result === 'object') {
+              if (!context.parsed) {
+                context.parsed = {}
+              }
+              Object.assign(context.parsed as Record<string, unknown>, result as Record<string, unknown>)
+            }
+          } catch (error) {
+            if (error instanceof RouteError) {
+              throw error
+            }
+            
+            throw new RouteError("Internal Server Error: Error in parse step", {
+              errorCode: 'PARSE_ERROR',
+              errorMessage: (error as Error).message,
+              httpStatus: 500,
+              cause: error as Error
+            })
+          }
+        }
+        
+        // Call handler with built context (skip onRequest/onResponse hooks for invoke)
+        return await handlerFn(mockRequest, context as TContext)
       } catch (error) {
         // Wrap non-RouteError errors
         if (error instanceof RouteError) {

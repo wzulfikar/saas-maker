@@ -561,3 +561,253 @@ describe("Stage 3: Context Type System", () => {
     expect(typeof builder.handle).toBe('function')
   })
 })
+
+describe("Stage 4: Prepare Method", () => {
+  describe("Context Building", () => {
+    test("execute single prepare step and build context", async () => {
+      const route = createRoute()
+        .prepare(async (req, ctx) => {
+          expect(req instanceof Request).toBe(true)
+          expect(ctx).toEqual({})
+          return { role: "admin", userId: "123" }
+        })
+        .handle(async (req, ctx) => {
+          // Context should be built from prepare step
+          expect(ctx).toEqual({ role: "admin", userId: "123" })
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test')
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true })
+    })
+
+    test("execute multiple prepare steps and merge context", async () => {
+      const route = createRoute()
+        .prepare(async (req, ctx) => {
+          expect(ctx).toEqual({})
+          return { role: "admin" }
+        })
+        .prepare(async (req, ctx) => {
+          expect(ctx).toEqual({ role: "admin" })
+          return { userId: "123", permissions: ["read", "write"] }
+        })
+        .prepare(async (req, ctx) => {
+          expect(ctx).toEqual({ 
+            role: "admin", 
+            userId: "123", 
+            permissions: ["read", "write"] 
+          })
+          return { timestamp: 1234567890 }
+        })
+        .handle(async (req, ctx) => {
+          expect(ctx).toEqual({
+            role: "admin",
+            userId: "123",
+            permissions: ["read", "write"],
+            timestamp: 1234567890
+          })
+          return { contextBuilt: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test')
+      const result = await route(mockRequest)
+      expect(result).toEqual({ contextBuilt: true })
+    })
+
+    test("prepare step can return undefined without affecting context", async () => {
+      const route = createRoute()
+        .prepare(async (req, ctx) => {
+          return { role: "admin" }
+        })
+        .prepare(async (req, ctx) => {
+          // This prepare doesn't return anything
+          return undefined
+        })
+        .prepare(async (req, ctx) => {
+          return { userId: "123" }
+        })
+        .handle(async (req, ctx) => {
+          expect(ctx).toEqual({ role: "admin", userId: "123" })
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test')
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true })
+    })
+  })
+
+  describe("Error Handling", () => {
+    test("wrap prepare step errors in RouteError", async () => {
+      const route = createRoute()
+        .prepare(async (req, ctx) => {
+          throw new Error("Unauthorized access")
+        })
+        .handle(async (req, ctx) => {
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test')
+      
+      try {
+        await route(mockRequest)
+        expect(true).toBe(false) // Should not reach here
+      } catch (error) {
+        expect(error instanceof RouteError).toBe(true)
+        const routeError = error as RouteError
+        expect(routeError.errorCode).toBe('PREPARE_ERROR')
+        expect(routeError.httpStatus).toBe(400)
+        expect(routeError.errorMessage).toBe("Unauthorized access")
+        expect(routeError.message).toBe("Bad Request: Error preparing request handler")
+        expect(routeError.cause?.message).toBe("Unauthorized access")
+      }
+    })
+
+    test("preserve RouteError thrown from prepare step", async () => {
+      const customRouteError = new RouteError("Custom unauthorized", {
+        errorCode: 'AUTH_ERROR',
+        errorMessage: 'Invalid token',
+        httpStatus: 401
+      })
+
+      const route = createRoute()
+        .prepare(async (req, ctx) => {
+          throw customRouteError
+        })
+        .handle(async (req, ctx) => {
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test')
+      
+      try {
+        await route(mockRequest)
+        expect(true).toBe(false) // Should not reach here
+      } catch (error) {
+        expect(error).toBe(customRouteError)
+      }
+    })
+
+    test("error in later prepare step stops execution", async () => {
+      let step2Called = false
+      let step3Called = false
+
+      const route = createRoute()
+        .prepare(async (req, ctx) => {
+          return { step1: true }
+        })
+        .prepare(async (req, ctx) => {
+          step2Called = true
+          throw new Error("Step 2 failed")
+        })
+        .prepare(async (req, ctx) => {
+          step3Called = true
+          return { step3: true }
+        })
+        .handle(async (req, ctx) => {
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test')
+      
+      try {
+        await route(mockRequest)
+      } catch (error) {
+        expect(error instanceof RouteError).toBe(true)
+      }
+      
+      expect(step2Called).toBe(true)
+      expect(step3Called).toBe(false) // Should not be called after error
+    })
+  })
+
+  describe("Invoke Method Context Building", () => {
+    test("invoke without context override executes prepare steps", async () => {
+      const route = createRoute()
+        .prepare(async (req, ctx) => {
+          return { role: "admin" }
+        })
+        .prepare(async (req, ctx) => {
+          return { userId: "123" }
+        })
+        .handle(async (req, ctx) => {
+          return { 
+            role: ctx.role,
+            userId: ctx.userId 
+          }
+        })
+
+      const result = await route.invoke()
+      expect(result).toEqual({ 
+        role: "admin", 
+        userId: "123" 
+      })
+    })
+
+    test("invoke with context override skips prepare steps", async () => {
+      let prepareCalled = false
+
+      const route = createRoute()
+        .prepare(async (req, ctx) => {
+          prepareCalled = true
+          return { role: "admin" }
+        })
+        .handle(async (req, ctx) => {
+          return { ctx }
+        })
+
+      const customContext = { customField: "value" } as any
+      const result = await route.invoke(customContext)
+      
+      expect(prepareCalled).toBe(false)
+      expect(result.ctx).toEqual({ customField: "value" })
+    })
+
+    test("invoke wraps prepare errors differently for invoke", async () => {
+      const route = createRoute()
+        .prepare(async (req, ctx) => {
+          throw new Error("Prepare failed")
+        })
+        .handle(async (req, ctx) => {
+          return { success: true }
+        })
+
+      try {
+        await route.invoke()
+        expect(true).toBe(false) // Should not reach here
+      } catch (error) {
+        expect(error instanceof RouteError).toBe(true)
+        const routeError = error as RouteError
+        expect(routeError.errorCode).toBe('PREPARE_ERROR')
+        expect(routeError.httpStatus).toBe(500) // 500 for invoke, 400 for request
+        expect(routeError.message).toBe("Internal Server Error: Error in prepare step")
+      }
+    })
+  })
+
+  describe("Integration with Lifecycle Hooks", () => {
+    test("prepare steps execute after onRequest hook", async () => {
+      const executionOrder: string[] = []
+
+      const route = createRoute({
+        onRequest: async (req) => {
+          executionOrder.push('onRequest')
+        }
+      })
+        .prepare(async (req, ctx) => {
+          executionOrder.push('prepare')
+          return { role: "admin" }
+        })
+        .handle(async (req, ctx) => {
+          executionOrder.push('handle')
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test')
+      await route(mockRequest)
+      
+      expect(executionOrder).toEqual(['onRequest', 'prepare', 'handle'])
+    })
+  })
+})
