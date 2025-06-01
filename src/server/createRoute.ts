@@ -363,18 +363,31 @@ export class RouteBuilder<TContext = EmptyContext> {
           }
         }
 
-        // Execute parse steps (placeholder for Stage 5)
+        // Execute parse steps with progressive type narrowing
         for (const parseStep of parseSteps) {
           try {
-            // TODO: implement actual parsing in Stage 5
             const result = await parseStep.parseFn(request, context)
-            // For now, just placeholder logic
             if (result && typeof result === 'object') {
               if (!context.parsed) {
                 context.parsed = {}
               }
-              // This is simplified - actual parsing will be more sophisticated
-              Object.assign(context.parsed as Record<string, unknown>, result as Record<string, unknown>)
+              
+              // Enhanced merging for type narrowing
+              const parsedContext = context.parsed as Record<string, unknown>
+              const newResults = result as Record<string, unknown>
+              
+              for (const [fieldName, fieldResult] of Object.entries(newResults)) {
+                if (parsedContext[fieldName] && typeof parsedContext[fieldName] === 'object' && typeof fieldResult === 'object') {
+                  // Merge objects for type narrowing (intersection)
+                  parsedContext[fieldName] = {
+                    ...parsedContext[fieldName] as Record<string, unknown>,
+                    ...fieldResult as Record<string, unknown>
+                  }
+                } else {
+                  // Override with new value (last wins for non-objects)
+                  parsedContext[fieldName] = fieldResult
+                }
+              }
             }
           } catch (error) {
             // Wrap parse errors in RouteError
@@ -450,7 +463,7 @@ export class RouteBuilder<TContext = EmptyContext> {
           }
         }
 
-        // Execute parse steps (placeholder)
+        // Execute parse steps with progressive type narrowing
         for (const parseStep of parseSteps) {
           try {
             const result = await parseStep.parseFn(mockRequest, context)
@@ -458,7 +471,23 @@ export class RouteBuilder<TContext = EmptyContext> {
               if (!context.parsed) {
                 context.parsed = {}
               }
-              Object.assign(context.parsed as Record<string, unknown>, result as Record<string, unknown>)
+              
+              // Enhanced merging for type narrowing
+              const parsedContext = context.parsed as Record<string, unknown>
+              const newResults = result as Record<string, unknown>
+              
+              for (const [fieldName, fieldResult] of Object.entries(newResults)) {
+                if (parsedContext[fieldName] && typeof parsedContext[fieldName] === 'object' && typeof fieldResult === 'object') {
+                  // Merge objects for type narrowing (intersection)
+                  parsedContext[fieldName] = {
+                    ...parsedContext[fieldName] as Record<string, unknown>,
+                    ...fieldResult as Record<string, unknown>
+                  }
+                } else {
+                  // Override with new value (last wins for non-objects)
+                  parsedContext[fieldName] = fieldResult
+                }
+              }
             }
           } catch (error) {
             if (error instanceof RouteError) {

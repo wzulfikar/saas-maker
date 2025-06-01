@@ -1450,3 +1450,331 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
     })
   })
 })
+
+describe("Stage 7: Type Narrowing & Multiple Parse", () => {
+  describe("Multiple Parse Calls on Same Field", () => {
+    test("merge object results for type narrowing", async () => {
+      const route = createRoute()
+        .parse({
+          body: async (body, ctx) => {
+            // First validation - basic structure
+            const data = body as { email: string }
+            return { email: data.email }
+          }
+        })
+        .parse({
+          body: async (body, ctx) => {
+            // Second validation - type narrowing with additional fields
+            const data = body as { email: string, age: number }
+            return { age: data.age, isValid: true }
+          }
+        })
+        .handle(async (req, ctx) => {
+          // Should have merged body results: { email, age, isValid }
+          expect(ctx.parsed.body.email).toBe('test@example.com')
+          expect(ctx.parsed.body.age).toBe(25)
+          expect(ctx.parsed.body.isValid).toBe(true)
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test', {
+        method: 'POST',
+        body: JSON.stringify({ email: 'test@example.com', age: 25 })
+      })
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true })
+    })
+
+    test("last wins for non-object fields", async () => {
+      const route = createRoute()
+        .parse({
+          auth: async (authHeader, ctx) => {
+            return { token: 'first-token' }
+          }
+        })
+        .parse({
+          auth: async (authHeader, ctx) => {
+            return { token: 'second-token' } // This should override
+          }
+        })
+        .handle(async (req, ctx) => {
+          expect(ctx.parsed.auth.token).toBe('second-token')
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test', {
+        headers: { 'authorization': 'Bearer test' }
+      })
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true })
+    })
+  })
+
+  describe("Progressive Type Refinement", () => {
+    test("multiple parse calls progressively build types", async () => {
+      const route = createRoute()
+        .parse({
+          body: async (body, ctx) => {
+            const data = body as { name: string }
+            return { name: data.name }
+          }
+        })
+        .parse({
+          auth: async (authHeader, ctx) => {
+            return { userId: '123' }
+          }
+        })
+        .parse({
+          body: async (body, ctx) => {
+            // Additional validation on body
+            const data = body as { name: string, email: string }
+            return { email: data.email, validated: true }
+          }
+        })
+        .handle(async (req, ctx) => {
+          // Should have: body: { name, email, validated }, auth: { userId }
+          expect(ctx.parsed.body.name).toBe('John')
+          expect(ctx.parsed.body.email).toBe('john@example.com')
+          expect(ctx.parsed.body.validated).toBe(true)
+          expect(ctx.parsed.auth.userId).toBe('123')
+          return { allValidated: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test', {
+        method: 'POST',
+        body: JSON.stringify({ name: 'John', email: 'john@example.com' }),
+        headers: { 'authorization': 'Bearer token123' }
+      })
+      const result = await route(mockRequest)
+      expect(result).toEqual({ allValidated: true })
+    })
+
+    test("type narrowing works with custom fields", async () => {
+      const route = createRoute()
+        .parse({
+          customValidator: async (req, ctx) => {
+            return { step1: 'validated' }
+          }
+        })
+        .parse({
+          customValidator: async (req, ctx) => {
+            return { step2: 'also-validated' }
+          }
+        })
+        .handle(async (req, ctx) => {
+          expect(ctx.parsed.customValidator.step1).toBe('validated')
+          expect(ctx.parsed.customValidator.step2).toBe('also-validated')
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test')
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true })
+    })
+  })
+
+  describe("Context Access in Later Parse Calls", () => {
+    test("later parse calls have access to prepare context", async () => {
+      const route = createRoute()
+        .prepare(async (req, ctx) => {
+          return { userId: 'user123' }
+        })
+        .parse({
+          body: async (body, ctx) => {
+            expect(ctx.userId).toBe('user123')
+            return { step1: 'complete' }
+          }
+        })
+        .parse({
+          headers: async (headers, ctx) => {
+            // Should have access to prepare context
+            expect(ctx.userId).toBe('user123')
+            return { userAgent: headers.get('user-agent') || 'unknown' }
+          }
+        })
+        .handle(async (req, ctx) => {
+          expect(ctx.userId).toBe('user123')
+          expect(ctx.parsed.body.step1).toBe('complete')
+          expect(ctx.parsed.headers.userAgent).toBe('test-agent')
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test', {
+        method: 'POST',
+        body: JSON.stringify({ test: 'data' }),
+        headers: { 'user-agent': 'test-agent' }
+      })
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true })
+    })
+
+    test("parse calls executed in order with cumulative context", async () => {
+      const executionOrder: string[] = []
+
+      const route = createRoute()
+        .parse({
+          step1: async (req, ctx) => {
+            executionOrder.push('parse-step1')
+            return { value: 'first' }
+          }
+        })
+        .parse({
+          step2: async (req, ctx) => {
+            executionOrder.push('parse-step2')
+            // Note: ctx doesn't have parsed results from same execution cycle
+            return { value: 'second' }
+          }
+        })
+        .parse({
+          step3: async (req, ctx) => {
+            executionOrder.push('parse-step3')
+            return { value: 'third' }
+          }
+        })
+        .handle(async (req, ctx) => {
+          executionOrder.push('handle')
+          expect(ctx.parsed.step1.value).toBe('first')
+          expect(ctx.parsed.step2.value).toBe('second')
+          expect(ctx.parsed.step3.value).toBe('third')
+          return { executionOrder }
+        })
+
+      const mockRequest = new Request('http://localhost/test')
+      const result = await route(mockRequest)
+      
+      expect(result.executionOrder).toEqual(['parse-step1', 'parse-step2', 'parse-step3', 'handle'])
+    })
+  })
+
+  describe("Complex Type Narrowing Scenarios", () => {
+    test("multiple validations on same field with error handling", async () => {
+      const route = createRoute()
+        .parse({
+          body: async (body, ctx) => {
+            const data = body as { email: string }
+            if (!data.email) throw new Error("Email required")
+            return { email: data.email }
+          }
+        })
+        .parse({
+          body: async (body, ctx) => {
+            const data = body as { email: string }
+            if (!data.email.includes('@')) throw new Error("Invalid email format")
+            return { emailValid: true }
+          }
+        })
+        .handle(async (req, ctx) => {
+          expect(ctx.parsed.body.email).toBe('test@example.com')
+          expect(ctx.parsed.body.emailValid).toBe(true)
+          return { validated: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test', {
+        method: 'POST',
+        body: JSON.stringify({ email: 'test@example.com' })
+      })
+      const result = await route(mockRequest)
+      expect(result).toEqual({ validated: true })
+
+      // Test error in second validation
+      const invalidRoute = createRoute()
+        .parse({
+          body: async (body, ctx) => {
+            const data = body as { email: string }
+            return { email: data.email }
+          }
+        })
+        .parse({
+          body: async (body, ctx) => {
+            const data = body as { email: string }
+            if (!data.email.includes('@')) throw new Error("Invalid email")
+            return { emailValid: true }
+          }
+        })
+        .handle(async (req, ctx) => {
+          return { success: true }
+        })
+
+      const invalidRequest = new Request('http://localhost/test', {
+        method: 'POST',
+        body: JSON.stringify({ email: 'invalid-email' })
+      })
+
+      try {
+        await invalidRoute(invalidRequest)
+        expect(true).toBe(false) // Should not reach here
+      } catch (error) {
+        expect(error instanceof RouteError).toBe(true)
+        const routeError = error as RouteError
+        expect(routeError.errorMessage).toBe("Invalid email")
+      }
+    })
+
+    test("mixed predefined and custom fields with type narrowing", async () => {
+      const route = createRoute()
+        .parse({
+          body: async (body, ctx) => {
+            return { step1: 'body-parsed' }
+          },
+          customField: async (req, ctx) => {
+            return { step1: 'custom-parsed' }
+          }
+        })
+        .parse({
+          body: async (body, ctx) => {
+            return { step2: 'body-enhanced' }
+          },
+          customField: async (req, ctx) => {
+            return { step2: 'custom-enhanced' }
+          }
+        })
+        .handle(async (req, ctx) => {
+          expect(ctx.parsed.body.step1).toBe('body-parsed')
+          expect(ctx.parsed.body.step2).toBe('body-enhanced')
+          expect(ctx.parsed.customField.step1).toBe('custom-parsed')
+          expect(ctx.parsed.customField.step2).toBe('custom-enhanced')
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test', {
+        method: 'POST',
+        body: JSON.stringify({ test: 'data' })
+      })
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true })
+    })
+  })
+
+  describe("Integration with Previous Stages", () => {
+    test("type narrowing works with prepare context", async () => {
+      const route = createRoute()
+        .prepare(async (req, ctx) => {
+          return { requestId: 'req-789' }
+        })
+        .parse({
+          auth: async (authHeader, ctx) => {
+            expect(ctx.requestId).toBe('req-789')
+            return { userId: 'user-456' }
+          }
+        })
+        .parse({
+          auth: async (authHeader, ctx) => {
+            expect(ctx.requestId).toBe('req-789')
+            return { role: 'admin' }
+          }
+        })
+        .handle(async (req, ctx) => {
+          expect(ctx.requestId).toBe('req-789')
+          expect(ctx.parsed.auth.userId).toBe('user-456')
+          expect(ctx.parsed.auth.role).toBe('admin')
+          return { authorized: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test', {
+        headers: { 'authorization': 'Bearer token123' }
+      })
+      const result = await route(mockRequest)
+      expect(result).toEqual({ authorized: true })
+    })
+  })
+})
