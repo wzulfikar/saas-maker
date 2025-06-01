@@ -23,7 +23,77 @@ export class RouteError extends Error {
   }
 }
 
-// Route options - enhanced for Stage 8 with sophisticated lifecycle integration
+// Framework-specific request object mappers (internal - for reference/examples)
+const FrameworkAdapters = {
+  // Next.js App Router: (request: NextRequest, context: NextContext) => Response
+  nextjs: (args: unknown) => {
+    const argsArray = Array.isArray(args) ? args : [args]
+    return argsArray[0] as Request // NextRequest extends Request
+  },
+
+  // Express: (req: Request, res: Response, next: NextFunction) => void
+  express: (args: unknown) => {
+    const argsArray = Array.isArray(args) ? args : [args]
+    const req = argsArray[0] as Record<string, unknown>
+    
+    // Convert Express request to standard Request
+    if (req?.method && req.url) {
+      const getFunc = req.get as ((header: string) => string | undefined) | undefined
+      const url = req.protocol ? `${req.protocol}://${getFunc?.('host') ?? 'localhost'}${req.originalUrl || req.url}` 
+                                : `http://localhost${req.originalUrl || req.url}`
+      const headers = new Headers(req.headers as Record<string, string> || {})
+      
+      return new Request(url, {
+        method: req.method as string,
+        headers,
+        body: req.method !== 'GET' && req.method !== 'HEAD' ? JSON.stringify(req.body) : undefined
+      })
+    }
+    
+    throw new Error('Invalid Express request object')
+  },
+
+  // Hono: (c: Context) => Response
+  hono: (args: unknown) => {
+    const context = args as Record<string, unknown>
+    if (context?.req) {
+      return context.req as Request
+    }
+    throw new Error('Invalid Hono context object')
+  },
+
+  // Cloudflare Workers: (request: Request, env: Env, ctx: ExecutionContext) => Response
+  cloudflare: (args: unknown) => {
+    const argsArray = Array.isArray(args) ? args : [args]
+    return argsArray[0] as Request
+  },
+
+  // Bun: (request: Request) => Response
+  bun: (args: unknown) => {
+    return args as Request
+  },
+
+  // Generic: Extract Request from various patterns
+  auto: (args: unknown) => {
+    // If single argument and it's a Request, use it
+    if (args && typeof args === 'object' && (args as Record<string, unknown>).method && (args as Record<string, unknown>).url) {
+      return args as Request
+    }
+    
+    // If array, try first element
+    if (Array.isArray(args) && args[0]) {
+      const first = args[0]
+      if (first && typeof first === 'object' && (first as Record<string, unknown>).method && (first as Record<string, unknown>).url) {
+        return first as Request
+      }
+    }
+    
+    // Default fallback
+    return args as Request
+  }
+} as const
+
+// Enhanced route options with minimal framework integration
 type RouteOptions = {
   onRequest?: (req: Request, metadata: { timestamp: number, requestId: string }) => Promise<void>
   onResponse?: (res: Response, metadata: { timestamp: number, requestId: string, duration: number }) => Promise<void>
@@ -35,10 +105,15 @@ type RouteOptions = {
   onParseStart?: (req: Request, context: Record<string, unknown>) => Promise<void>
   onParseComplete?: (req: Request, context: Record<string, unknown>) => Promise<void>
   generateRequestId?: () => string
+  // Stage 9 additions
+  errorHandler?: (error: RouteError, metadata: { timestamp: number, requestId: string, stage: string }) => Promise<Response | undefined>
 }
 
 // Context types for progressive building
 type EmptyContext = Record<string, never>
+
+// Enhanced context with requestId
+type ContextWithRequestId = { requestId: string }
 
 // Type utility to merge contexts progressively
 type MergeContexts<T, U> = T & U
@@ -66,11 +141,12 @@ type ExtractNonParsed<T> = Omit<T, 'parsed'>
 // HTTP methods supported
 type RouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "OPTIONS" | "HEAD"
 
+// Enhanced createRoute with framework integration
 export const createRoute = (routeOptions: RouteOptions = {}) => {
-  return new RouteBuilder<EmptyContext>(routeOptions)
+  return new RouteBuilder<ContextWithRequestId>(routeOptions)
 }
 
-export class RouteBuilder<TContext = EmptyContext> {
+export class RouteBuilder<TContext = ContextWithRequestId> {
   private prepareSteps: Array<(req: Request, ctx: unknown) => Promise<unknown>> = []
   private parseSteps: Array<{
     payload: unknown
@@ -78,8 +154,19 @@ export class RouteBuilder<TContext = EmptyContext> {
   }> = []
 
   constructor(private routeOptions: RouteOptions) {
+    // Enhanced request object mapping with framework support
+    const getRequestMapper = (): (args: unknown) => Request => {
+      // If framework is specified, use its adapter
+      if (routeOptions.requestObject) {
+        return routeOptions.requestObject
+      }
+      
+      // Default to auto-detection
+      return FrameworkAdapters.auto
+    }
+
     this.routeOptions = {
-      requestObject: (args) => args as Request,
+      requestObject: getRequestMapper(),
       ...routeOptions
     }
   }
@@ -328,20 +415,31 @@ export class RouteBuilder<TContext = EmptyContext> {
 
   handle<TResponse>(
     handlerFn: (req: Request, ctx: TContext) => Promise<TResponse>
-  ): RouteHandler<TContext, TResponse> {
-    const { onRequest, onResponse, onError, requestObject, onPrepareStart, onPrepareCompleted, onParseStart, onParseComplete, generateRequestId } = this.routeOptions
+  ): EnhancedRouteHandler<TContext, TResponse> {
+    const { onRequest, onResponse, onError, requestObject, onPrepareStart, onPrepareCompleted, onParseStart, onParseComplete, generateRequestId, errorHandler } = this.routeOptions
     const prepareSteps = this.prepareSteps
     const parseSteps = this.parseSteps
 
-    // Main route handler function
+    // Enhanced route handler with framework integration
     async function routeHandler(...args: unknown[]): Promise<TResponse> {
       try {
-        // Enhanced metadata tracking for Stage 8
+        // Enhanced metadata tracking for Stage 9
         const startTime = Date.now()
         const requestId = generateRequestId?.() || `req-${Math.random().toString(36).substring(2)}`
         
-        // Extract request object using the requestObject mapper
-        const request = requestObject ? requestObject(args.length === 1 ? args[0] : args) : (args[0] as Request)
+        // Enhanced request object extraction with framework support
+        let request: Request
+        try {
+          const requestMapper = requestObject || FrameworkAdapters.auto
+          request = requestMapper(args.length === 1 ? args[0] : args)
+        } catch (error) {
+          throw new RouteError("Bad Request: Invalid request object", {
+            errorCode: 'REQUEST_MAPPING_ERROR',
+            errorMessage: `Failed to extract Request object: ${(error as Error).message}`,
+            httpStatus: 400,
+            cause: error as Error
+          })
+        }
         
         // Call onRequest hook if provided
         if (onRequest) {
@@ -448,7 +546,7 @@ export class RouteBuilder<TContext = EmptyContext> {
         // Call the actual handler with built context
         const response = await handlerFn(request, context as TContext)
 
-        // Enhanced response handling for Stage 8
+        // Enhanced response handling for Stage 9
         const endTime = Date.now()
         const duration = endTime - startTime
 
@@ -468,7 +566,7 @@ export class RouteBuilder<TContext = EmptyContext> {
 
         return response
       } catch (error) {
-        // Enhanced error handling with metadata
+        // Enhanced error handling with framework integration
         const errorTime = Date.now()
         const requestId = generateRequestId?.() || `req-${Math.random().toString(36).substring(2)}`
         
@@ -476,25 +574,34 @@ export class RouteBuilder<TContext = EmptyContext> {
         if (onError) {
           await onError(error as Error, { timestamp: errorTime, requestId, stage: 'handle' })
         }
+
+        // Framework-specific error handling
+        if (errorHandler && error instanceof RouteError) {
+          const errorResponse = await errorHandler(error, { timestamp: errorTime, requestId, stage: 'handle' })
+          if (errorResponse) {
+            return errorResponse as TResponse
+          }
+        }
         
         // Re-throw the error so it can be handled by the framework
         throw error
       }
     }
     
-    // Add invoke method for server-side calls
-    routeHandler.invoke = async (contextOverride?: TContext): Promise<TResponse> => {
+    // Enhanced invoke method with better context typing
+    routeHandler.invoke = async (contextOverride?: Partial<TContext>): Promise<TResponse> => {
       try {
-        // Enhanced metadata tracking for Stage 8
+        // Enhanced metadata tracking for Stage 9
         const startTime = Date.now()
         const requestId = generateRequestId?.() || `req-${Math.random().toString(36).substring(2)}`
         
         // Create a mock request for invoke
-        const mockRequest = new Request('http://localhost/test')
+        const mockRequest = new Request('http://localhost/invoke')
         
         if (contextOverride) {
-          // Use provided context directly (skip prepare/parse execution)
-          return await handlerFn(mockRequest, contextOverride)
+          // Merge provided context with requestId
+          const fullContext = { requestId, ...contextOverride } as TContext
+          return await handlerFn(mockRequest, fullContext)
         }
         
         // Call onPrepareStart hook for invoke
@@ -617,11 +724,47 @@ export class RouteBuilder<TContext = EmptyContext> {
       }
     }
 
-    return routeHandler as RouteHandler<TContext, TResponse>
+    // Add framework-specific response helpers
+    routeHandler.asResponse = (status = 200, headers?: Record<string, string>) => {
+      return async (...args: unknown[]): Promise<Response> => {
+        try {
+          const result = await routeHandler(...args)
+          return new Response(JSON.stringify(result), {
+            status,
+            headers: {
+              'Content-Type': 'application/json',
+              ...headers
+            }
+          })
+        } catch (error) {
+          if (error instanceof RouteError) {
+            return new Response(JSON.stringify({
+              error: error.errorCode,
+              message: error.errorMessage
+            }), {
+              status: error.httpStatus,
+              headers: { 'Content-Type': 'application/json' }
+            })
+          }
+          
+          return new Response(JSON.stringify({
+            error: 'INTERNAL_SERVER_ERROR',
+            message: 'An unexpected error occurred'
+          }), {
+            status: 500,
+            headers: { 'Content-Type': 'application/json' }
+          })
+        }
+      }
+    }
+
+    return routeHandler as EnhancedRouteHandler<TContext, TResponse>
   }
 }
 
-interface RouteHandler<TContext, TResponse> {
+// Enhanced route handler interface with framework integration
+interface EnhancedRouteHandler<TContext, TResponse> {
   (...args: unknown[]): Promise<TResponse>
-  invoke(contextOverride?: TContext): Promise<TResponse>
+  invoke(contextOverride?: Partial<TContext>): Promise<TResponse>
+  asResponse(status?: number, headers?: Record<string, string>): (...args: unknown[]) => Promise<Response>
 }

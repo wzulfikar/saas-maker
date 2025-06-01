@@ -2219,3 +2219,605 @@ describe("Stage 8: Request Lifecycle Integration", () => {
     })
   })
 })
+
+// ===== STAGE 9: FRAMEWORK INTEGRATION & INVOKE TESTS =====
+describe("Stage 9: Framework Integration & Invoke", () => {
+  describe("Framework Adapters", () => {
+    test("nextjs adapter extracts request from NextRequest", async () => {
+      const mockNextRequest = new Request('http://localhost:3000/api/test', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ data: 'test' })
+      })
+      
+      const route = createRoute({ 
+        requestObject: (args) => (Array.isArray(args) ? args : [args])[0] as Request
+      })
+        .prepare(async (req) => ({ framework: 'nextjs' }))
+        .handle(async (req, ctx) => {
+          expect(req.url).toBe('http://localhost:3000/api/test')
+          expect(req.method).toBe('POST')
+          expect(ctx.framework).toBe('nextjs')
+          expect(ctx.requestId).toBeDefined()
+          return { success: true }
+        })
+      
+      const result = await route(mockNextRequest)
+      expect(result).toEqual({ success: true })
+    })
+
+    test("hono adapter extracts request from Hono context", async () => {
+      const mockRequest = new Request('http://localhost/hono', {
+        method: 'GET',
+        headers: { 'user-agent': 'hono-client' }
+      })
+      
+      const mockHonoContext = {
+        req: mockRequest,
+        env: {},
+        event: {}
+      }
+      
+      const route = createRoute({ 
+        requestObject: (args) => (args as { req: Request }).req
+      })
+        .prepare(async (req) => ({ framework: 'hono' }))
+        .handle(async (req, ctx) => {
+          expect(req.url).toBe('http://localhost/hono')
+          expect(req.method).toBe('GET')
+          expect(ctx.framework).toBe('hono')
+          return { success: true, framework: 'hono' }
+        })
+      
+      const result = await route(mockHonoContext)
+      expect(result).toEqual({ success: true, framework: 'hono' })
+    })
+
+    test("cloudflare adapter handles multiple arguments", async () => {
+      const mockRequest = new Request('http://worker.example.com/api', {
+        method: 'DELETE',
+        headers: { 'authorization': 'Bearer token123' }
+      })
+      
+      const mockEnv = { SECRET_KEY: 'test' }
+      const mockCtx = { waitUntil: () => {} }
+      
+      const route = createRoute({ 
+        requestObject: (args) => (Array.isArray(args) ? args : [args])[0] as Request
+      })
+        .prepare(async (req) => ({ platform: 'cloudflare' }))
+        .handle(async (req, ctx) => {
+          expect(req.url).toBe('http://worker.example.com/api')
+          expect(req.method).toBe('DELETE')
+          expect(ctx.platform).toBe('cloudflare')
+          return { success: true, platform: 'cloudflare' }
+        })
+      
+      const result = await route(mockRequest, mockEnv, mockCtx)
+      expect(result).toEqual({ success: true, platform: 'cloudflare' })
+    })
+
+    test("auto adapter handles standard Request objects", async () => {
+      const mockRequest = new Request('http://localhost/auto', {
+        method: 'PATCH',
+        headers: { 'content-type': 'application/json' }
+      })
+      
+      const route = createRoute() // Uses default auto detection
+        .prepare(async (req) => ({ detected: 'auto' }))
+        .handle(async (req, ctx) => {
+          expect(req.url).toBe('http://localhost/auto')
+          expect(req.method).toBe('PATCH')
+          expect(ctx.detected).toBe('auto')
+          return { success: true, detected: 'auto' }
+        })
+      
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true, detected: 'auto' })
+    })
+  })
+
+  describe("Custom Request Object Mapping", () => {
+    test("simple request object extraction", async () => {
+      const route = createRoute()
+        .prepare(async (req) => ({ created: 'simple' }))
+        .handle(async (req, ctx) => {
+          expect(ctx.created).toBe('simple')
+          expect(ctx.requestId).toBeDefined()
+          return { success: true }
+        })
+      
+      const mockRequest = new Request('http://localhost/simple')
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true })
+    })
+
+    test("express-style request object extraction", async () => {
+      const route = createRoute({
+        requestObject: (args) => {
+          const req = (Array.isArray(args) ? args : [args])[0] as Record<string, unknown>
+          
+          if (req?.method && req.url) {
+            const url = req.protocol ? `${req.protocol}://localhost${req.originalUrl || req.url}` 
+                                      : `http://localhost${req.originalUrl || req.url}`
+            return new Request(url, {
+              method: req.method as string,
+              headers: new Headers(req.headers as Record<string, string> || {}),
+              body: req.method !== 'GET' && req.method !== 'HEAD' ? JSON.stringify(req.body) : undefined
+            })
+          }
+          
+          throw new Error('Invalid Express request object')
+        },
+        generateRequestId: () => 'express-123'
+      })
+        .prepare(async (req, ctx) => {
+          expect(ctx.requestId).toBe('express-123')
+          return { created: 'express-style' }
+        })
+        .handle(async (req, ctx) => {
+          expect(ctx.created).toBe('express-style')
+          return { success: true, requestId: ctx.requestId }
+        })
+      
+      // Mock Express request
+      const mockExpressReq = {
+        method: 'POST',
+        url: '/express-route',
+        protocol: 'http',
+        headers: { 'content-type': 'application/json' },
+        body: { data: 'test' },
+        originalUrl: '/express-route'
+      }
+      
+      const result = await route(mockExpressReq)
+      expect(result).toEqual({ success: true, requestId: 'express-123' })
+    })
+
+    test("minimal request mapping", async () => {
+      const route = createRoute({
+        requestObject: (args) => args as Request
+      })
+        .prepare(async (req) => ({ runtime: 'minimal' }))
+        .handle(async (req, ctx) => {
+          expect(ctx.runtime).toBe('minimal')
+          return { success: true, runtime: 'minimal' }
+        })
+      
+      const mockRequest = new Request('http://localhost/minimal')
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true, runtime: 'minimal' })
+    })
+  })
+
+  describe("Enhanced Invoke Method", () => {
+    test("invoke with partial context override maintains requestId", async () => {
+      const route = createRoute({
+        generateRequestId: () => 'invoke-123'
+      })
+        .prepare(async (req, ctx) => {
+          expect(ctx.requestId).toBe('invoke-123')
+          return { prepared: true, userId: 'default-user' }
+        })
+        .parse({ 
+          auth: async (header: string, ctx: any) => {
+            return { token: 'default-token' }
+          }
+        })
+        .handle(async (req, ctx) => {
+          return { 
+            success: true,
+            requestId: ctx.requestId,
+            prepared: ctx.prepared,
+            userId: ctx.userId,
+            auth: ctx.parsed.auth
+          }
+        })
+      
+      // Invoke with partial context override
+      const result = await route.invoke({ 
+        userId: 'override-user' 
+      } as any)
+      
+      expect(result).toEqual({
+        success: true,
+        requestId: 'invoke-123',
+        prepared: true,
+        userId: 'override-user', // Overridden
+        auth: { token: 'default-token' } // From parse
+      })
+    })
+
+    test("invoke executes full lifecycle hooks", async () => {
+      const hookCalls: string[] = []
+      
+      const route = createRoute({
+        onPrepareStart: async () => { hookCalls.push('onPrepareStart') },
+        onPrepareCompleted: async () => { hookCalls.push('onPrepareCompleted') },
+        onParseStart: async () => { hookCalls.push('onParseStart') },
+        onParseComplete: async () => { hookCalls.push('onParseComplete') }
+      })
+        .prepare(async (req) => {
+          hookCalls.push('prepare')
+          return { prepared: true }
+        })
+        .parse({
+          headers: async (headers: Headers, ctx: any) => {
+            hookCalls.push('parse')
+            return { parsed: true }
+          }
+        })
+        .handle(async (req, ctx) => {
+          hookCalls.push('handle')
+          return { success: true }
+        })
+      
+      await route.invoke()
+      
+      expect(hookCalls).toEqual([
+        'onPrepareStart',
+        'prepare',
+        'onPrepareCompleted',
+        'onParseStart',
+        'parse',
+        'onParseComplete',
+        'handle'
+      ])
+    })
+
+    test("invoke with complete context override skips prepare/parse", async () => {
+      const hookCalls: string[] = []
+      
+      const route = createRoute({
+        onPrepareStart: async () => { hookCalls.push('onPrepareStart') },
+        onParseStart: async () => { hookCalls.push('onParseStart') }
+      })
+        .prepare(async (req) => {
+          hookCalls.push('prepare')
+          return { prepared: true }
+        })
+        .parse({
+          body: async (body: unknown, ctx: any) => {
+            hookCalls.push('parse')
+            return { parsed: true }
+          }
+        })
+        .handle(async (req, ctx) => {
+          hookCalls.push('handle')
+          return { 
+            success: true,
+            context: ctx
+          }
+        })
+      
+      const result = await route.invoke({
+        requestId: 'custom-123',
+        parsed: { body: { custom: 'data' } }
+      } as any)
+      
+      expect(hookCalls).toEqual(['handle']) // Only handle called
+      expect(result.success).toBe(true)
+    })
+  })
+
+  describe("Framework Response Helpers", () => {
+    test("asResponse method creates proper Response objects", async () => {
+      const route = createRoute()
+        .prepare(async (req) => ({ prepared: true }))
+        .handle(async (req, ctx) => {
+          return { 
+            message: 'Hello World',
+            requestId: ctx.requestId,
+            prepared: ctx.prepared
+          }
+        })
+      
+      const responseHandler = route.asResponse(201, {
+        'X-Custom-Header': 'test-value'
+      })
+      
+      const mockRequest = new Request('http://localhost/test')
+      const response = await responseHandler(mockRequest)
+      
+      expect(response).toBeInstanceOf(Response)
+      expect(response.status).toBe(201)
+      expect(response.headers.get('Content-Type')).toBe('application/json')
+      expect(response.headers.get('X-Custom-Header')).toBe('test-value')
+      
+      const body = await response.json()
+      expect(body.message).toBe('Hello World')
+      expect(body.prepared).toBe(true)
+      expect(body.requestId).toBeDefined()
+    })
+
+    test("asResponse handles RouteError with proper status", async () => {
+      const route = createRoute()
+        .prepare(async (req) => {
+          throw new RouteError("Preparation failed", {
+            errorCode: 'PREP_ERROR',
+            errorMessage: 'Something went wrong during preparation',
+            httpStatus: 422
+          })
+        })
+        .handle(async (req, ctx) => {
+          return { success: true }
+        })
+      
+      const responseHandler = route.asResponse()
+      const mockRequest = new Request('http://localhost/error')
+      const response = await responseHandler(mockRequest)
+      
+      expect(response.status).toBe(422)
+      expect(response.headers.get('Content-Type')).toBe('application/json')
+      
+      const body = await response.json()
+      expect(body).toEqual({
+        error: 'PREP_ERROR',
+        message: 'Something went wrong during preparation'
+      })
+    })
+
+    test("asResponse handles unexpected errors with 500 status", async () => {
+      const route = createRoute()
+        .handle(async (req, ctx) => {
+          throw new Error("Unexpected error")
+        })
+      
+      const responseHandler = route.asResponse()
+      const mockRequest = new Request('http://localhost/unexpected')
+      const response = await responseHandler(mockRequest)
+      
+      expect(response.status).toBe(500)
+      const body = await response.json()
+      expect(body).toEqual({
+        error: 'INTERNAL_SERVER_ERROR',
+        message: 'An unexpected error occurred'
+      })
+    })
+  })
+
+  describe("Enhanced Error Handling", () => {
+    test("framework request mapping errors are properly handled", async () => {
+      const route = createRoute({
+        requestObject: (args) => {
+          const context = args as Record<string, unknown>
+          if (context?.req) {
+            return context.req as Request
+          }
+          throw new Error('Invalid Hono context object')
+        }
+      })
+        .handle(async (req, ctx) => {
+          return { success: true }
+        })
+      
+      // Pass invalid object that doesn't match Hono context
+      const invalidContext = { notReq: 'invalid' }
+      
+      await expect(route(invalidContext)).rejects.toThrow(RouteError)
+      await expect(route(invalidContext)).rejects.toMatchObject({
+        errorCode: 'REQUEST_MAPPING_ERROR',
+        httpStatus: 400
+      })
+    })
+
+    test("custom errorHandler processes RouteErrors", async () => {
+      let capturedError: RouteError | null = null
+      let capturedMetadata: Record<string, unknown> = {}
+      
+      const route = createRoute({
+        errorHandler: async (error, metadata) => {
+          capturedError = error
+          capturedMetadata = metadata
+          return new Response(JSON.stringify({
+            custom: 'error-handling',
+            code: error.errorCode
+          }), { status: error.httpStatus }) as unknown as { custom: string, code: string }
+        }
+      })
+        .prepare(async (req) => {
+          throw new RouteError("Custom error", {
+            errorCode: 'CUSTOM_ERROR',
+            errorMessage: 'This is a custom error',
+            httpStatus: 418 // I'm a teapot
+          })
+        })
+        .handle(async (req, ctx) => {
+          return { success: true }
+        })
+      
+      const mockRequest = new Request('http://localhost/error')
+      const result = await route(mockRequest)
+      
+      expect(result).toEqual({
+        custom: 'error-handling',
+        code: 'CUSTOM_ERROR'
+      })
+      
+      expect(capturedError).toBeInstanceOf(RouteError)
+      expect(capturedError?.errorCode).toBe('CUSTOM_ERROR')
+      expect(capturedMetadata.stage).toBe('handle')
+      expect(capturedMetadata.requestId).toBeDefined()
+    })
+
+    test("invoke method error handling with metadata", async () => {
+      const errorCalls: Array<{ err: Error, metadata: Record<string, unknown> }> = []
+      
+      const route = createRoute({
+        onError: async (err, metadata) => {
+          errorCalls.push({ err, metadata })
+        }
+      })
+        .prepare(async (req) => {
+          throw new Error("Prepare error in invoke")
+        })
+        .handle(async (req, ctx) => {
+          return { success: true }
+        })
+      
+      await expect(route.invoke()).rejects.toThrow('Prepare error in invoke')
+      
+      expect(errorCalls).toHaveLength(1)
+      expect(errorCalls[0].metadata.stage).toBe('prepare')
+      expect(errorCalls[0].metadata.requestId).toBeDefined()
+    })
+  })
+
+  describe("Real Framework Integration Examples", () => {
+    test("Next.js API route pattern", async () => {
+      // Simulate Next.js API route: export default async function handler(req, context)
+      const nextjsRoute = createRoute({
+        requestObject: (args) => (Array.isArray(args) ? args : [args])[0] as Request,
+        generateRequestId: () => `nextjs-${Math.random().toString(36).substring(2)}`
+      })
+        .prepare(async (req, ctx) => {
+          // Extract user from session/headers
+          const authHeader = req.headers.get('authorization')
+          return { 
+            user: authHeader ? { id: 'user-123', token: authHeader } : null 
+          }
+        })
+        .parse({
+          body: async (body: unknown, ctx: any) => {
+            // Parse and validate request body
+            return { name: (body as { name: string }).name, email: (body as { email: string }).email }
+          },
+          method: 'POST'
+        })
+        .handle(async (req, ctx) => {
+          if (!ctx.user) {
+            throw new RouteError("Unauthorized", {
+              errorCode: 'UNAUTHORIZED',
+              errorMessage: 'Authentication required',
+              httpStatus: 401
+            })
+          }
+          
+          return {
+            success: true,
+            user: ctx.user,
+            data: ctx.parsed.body,
+            requestId: ctx.requestId
+          }
+        })
+      
+      const mockNextRequest = new Request('http://localhost:3000/api/users', {
+        method: 'POST',
+        headers: { 
+          'authorization': 'Bearer nextjs-token',
+          'content-type': 'application/json'
+        },
+        body: JSON.stringify({ name: 'John', email: 'john@example.com' })
+      })
+      
+      const result = await nextjsRoute(mockNextRequest)
+      
+      expect(result.success).toBe(true)
+      expect(result.user.token).toBe('Bearer nextjs-token')
+      expect(result.data).toEqual({ name: 'John', email: 'john@example.com' })
+      expect(result.requestId).toMatch(/^nextjs-/)
+    })
+
+    test("Cloudflare Workers pattern", async () => {
+      // Simulate: export default { async fetch(request, env, ctx) { ... } }
+      const cfRoute = createRoute({
+        requestObject: (args) => (Array.isArray(args) ? args : [args])[0] as Request
+      })
+        .prepare(async (req, ctx) => {
+          return { 
+            edge: true,
+            region: 'us-east-1' // Could be extracted from cf-ray header
+          }
+        })
+        .parse({
+          query: async (query: Record<string, string>, ctx: any) => {
+            return { 
+              limit: Number.parseInt(query.limit || '10'),
+              offset: Number.parseInt(query.offset || '0')
+            }
+          }
+        })
+        .handle(async (req, ctx) => {
+          return {
+            success: true,
+            edge: ctx.edge,
+            region: ctx.region,
+            pagination: ctx.parsed.query,
+            requestId: ctx.requestId
+          }
+        })
+      
+      const mockCfRequest = new Request('http://worker.example.com/api/data?limit=5&offset=10')
+      const mockEnv = { DB_URL: 'sqlite://db.sqlite' }
+      const mockCtx = { waitUntil: () => {} }
+      
+      const result = await cfRoute(mockCfRequest, mockEnv, mockCtx)
+      
+      expect(result).toEqual({
+        success: true,
+        edge: true,
+        region: 'us-east-1',
+        pagination: { limit: 5, offset: 10 },
+        requestId: expect.any(String)
+      })
+    })
+
+    test("Express.js middleware pattern", async () => {
+      // Simulate: app.post('/api/users', routeHandler)
+      const expressRoute = createRoute({
+        requestObject: (args) => {
+          const req = (Array.isArray(args) ? args : [args])[0] as Record<string, unknown>
+          
+          if (req?.method && req.url) {
+            const url = req.protocol ? `${req.protocol}://api.example.com${req.originalUrl || req.url}` 
+                                      : `http://api.example.com${req.originalUrl || req.url}`
+            return new Request(url, {
+              method: req.method as string,
+              headers: new Headers(req.headers as Record<string, string> || {}),
+              body: req.method !== 'GET' && req.method !== 'HEAD' ? JSON.stringify(req.body) : undefined
+            })
+          }
+          
+          throw new Error('Invalid Express request object')
+        }
+      })
+        .prepare(async (req, ctx) => {
+          // Could access req.session, req.user, etc.
+          return { middleware: 'express' }
+        })
+        .parse({
+          body: async (body: unknown, ctx: any) => {
+            // Body parsing (typically done by express.json() middleware)
+            return { validated: true, data: body }
+          }
+        })
+        .handle(async (req, ctx) => {
+          return {
+            message: 'Express route handled',
+            middleware: ctx.middleware,
+            body: ctx.parsed.body,
+            requestId: ctx.requestId
+          }
+        })
+      
+      // Mock Express request object
+      const mockExpressReq = {
+        method: 'POST',
+        url: '/api/users',
+        protocol: 'https',
+        headers: { 'content-type': 'application/json' },
+        body: { name: 'Express User' },
+        originalUrl: '/api/users'
+      }
+      
+      const result = await expressRoute(mockExpressReq)
+      
+      expect(result).toEqual({
+        message: 'Express route handled',
+        middleware: 'express',
+        body: { validated: true, data: { name: 'Express User' } },
+        requestId: expect.any(String)
+      })
+    })
+  })
+})
