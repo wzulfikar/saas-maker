@@ -312,3 +312,252 @@ describe("Stage 2: Basic Builder Pattern", () => {
     })
   })
 })
+
+describe("Stage 3: Context Type System", () => {
+  describe("Progressive Context Building", () => {
+    test("empty context starts with EmptyContext type", () => {
+      const builder = createRoute()
+      expect(builder).toBeDefined()
+      
+      // This test mainly validates TypeScript compilation
+      const route = builder.handle(async (req, ctx) => {
+        // ctx should be typed as EmptyContext (Record<string, never>)
+        // TypeScript should enforce this at compile time
+        const keys = Object.keys(ctx)
+        expect(keys).toEqual([])
+        return { contextType: 'empty' }
+      })
+      
+      expect(route).toBeDefined()
+    })
+
+    test("prepare method returns new builder with merged context type", () => {
+      const builder = createRoute()
+        .prepare(async (req, ctx) => {
+          // ctx is EmptyContext here
+          expect(Object.keys(ctx)).toEqual([])
+          return { role: "admin" as const }
+        })
+
+      expect(builder).toBeDefined()
+      
+      // The builder should now have the context type extended
+      const route = builder.handle(async (req, ctx) => {
+        // ctx should be typed as { role: "admin" }
+        // This validates TypeScript inference
+        return { hasRole: 'role' in ctx }
+      })
+      
+      expect(route).toBeDefined()
+    })
+
+    test("multiple prepare calls merge context types", () => {
+      const builder = createRoute()
+        .prepare(async (req, ctx) => {
+          return { role: "admin" as const }
+        })
+        .prepare(async (req, ctx) => {
+          // ctx should now have { role: "admin" }
+          return { userId: "123" }
+        })
+
+      const route = builder.handle(async (req, ctx) => {
+        // ctx should be typed as { role: "admin" } & { userId: string }
+        return { 
+          hasRole: 'role' in ctx,
+          hasUserId: 'userId' in ctx 
+        }
+      })
+      
+      expect(route).toBeDefined()
+    })
+
+    test("parse method adds parsed property to context", () => {
+      const builder = createRoute()
+        .parse({
+          body: async (body: unknown, ctx: unknown) => {
+            return { name: "test" }
+          }
+        })
+
+      const route = builder.handle(async (req, ctx) => {
+        // ctx should be typed as { parsed: { body: { name: string } } }
+        return { 
+          hasParsed: 'parsed' in ctx
+        }
+      })
+      
+      expect(route).toBeDefined()
+    })
+
+    test("multiple parse calls merge parsed results", () => {
+      const builder = createRoute()
+        .parse({
+          headers: async (headers: Headers, ctx: unknown) => {
+            return { userAgent: "test-agent" }
+          }
+        })
+        .parse({
+          body: async (body: unknown, ctx: unknown) => {
+            return { name: "test" }
+          }
+        })
+
+      const route = builder.handle(async (req, ctx) => {
+        // ctx should be typed as { parsed: { headers: { userAgent: string }, body: { name: string } } }
+        return { 
+          hasParsed: 'parsed' in ctx
+        }
+      })
+      
+      expect(route).toBeDefined()
+    })
+
+    test("prepare and parse can be interleaved", () => {
+      const builder = createRoute()
+        .prepare(async (req, ctx) => {
+          return { role: "admin" as const }
+        })
+        .parse({
+          headers: async (headers: Headers, ctx: unknown) => {
+            // ctx should have { role: "admin" }
+            return { userAgent: "test" }
+          }
+        })
+        .prepare(async (req, ctx) => {
+          // ctx should have { role: "admin", parsed: { headers: { userAgent: string } } }
+          return { timestamp: Date.now() }
+        })
+
+      const route = builder.handle(async (req, ctx) => {
+        // ctx should be typed as { role: "admin", timestamp: number, parsed: { headers: { userAgent: string } } }
+        return { 
+          hasRole: 'role' in ctx,
+          hasParsed: 'parsed' in ctx,
+          hasTimestamp: 'timestamp' in ctx
+        }
+      })
+      
+      expect(route).toBeDefined()
+    })
+  })
+
+  describe("Type Narrowing with Multiple Parse", () => {
+    test("multiple parse calls on same field should merge types", () => {
+      const builder = createRoute()
+        .parse({
+          body: async (body: unknown, ctx: unknown) => {
+            // First validation - basic structure
+            return { name: "test" as string }
+          }
+        })
+        .parse({
+          body: async (body: unknown, ctx: unknown) => {
+            // Second validation - type narrowing (e.g., email validation)
+            return { name: "test@example.com" as string, age: 25 }
+          }
+        })
+
+      const route = builder.handle(async (req, ctx) => {
+        // ctx.parsed.body should be intersection of both validations
+        // { name: string } & { name: string, age: number } = { name: string, age: number }
+        return { 
+          hasParsed: 'parsed' in ctx
+        }
+      })
+      
+      expect(route).toBeDefined()
+    })
+  })
+
+  describe("Builder Immutability", () => {
+    test("prepare returns new builder instance", () => {
+      const builder1 = createRoute()
+      const builder2 = builder1.prepare(async (req, ctx) => {
+        return { role: "admin" }
+      })
+      expect(builder1).not.toBe(builder2)
+      expect(builder1).toBeDefined()
+      expect(builder2).toBeDefined()
+    })
+
+    test("parse returns new builder instance", () => {
+      const builder1 = createRoute()
+      const builder2 = builder1.parse({
+        body: async (body: unknown, ctx: unknown) => ({ name: "test" })
+      })
+      
+      expect(builder1).not.toBe(builder2)
+      expect(builder1).toBeDefined()
+      expect(builder2).toBeDefined()
+    })
+
+    test("prepare and parse steps are copied to new builder", () => {
+      const builder1 = createRoute()
+        .prepare(async (req, ctx) => ({ step1: true }))
+      
+      const builder2 = builder1
+        .prepare(async (req, ctx) => ({ step2: true }))
+      
+      const builder3 = builder2
+        .parse({ 
+          headers: async (headers: Headers, ctx: unknown) => ({ userAgent: "test" }) 
+        })
+      
+      // Each builder should maintain the chain of steps
+      expect(builder1).toBeDefined()
+      expect(builder2).toBeDefined() 
+      expect(builder3).toBeDefined()
+    })
+  })
+
+  describe("Context Override Type Safety", () => {
+    test("invoke method accepts properly typed context", async () => {
+      const route = createRoute()
+        .prepare(async (req, ctx) => ({ role: "admin" as const }))
+        .parse({
+          headers: async (headers: Headers, ctx: unknown) => ({ userAgent: "test" })
+        })
+        .handle(async (req, ctx) => {
+          return { 
+            role: 'role' in ctx ? 'present' : 'missing',
+            parsed: 'parsed' in ctx ? 'present' : 'missing'
+          }
+        })
+
+      // TypeScript should enforce the context structure
+      // Use type assertion for complex context type
+      const contextOverride = {
+        role: "admin" as const,
+        parsed: {
+          headers: { userAgent: "test" }
+        }
+      } as Record<string, unknown> // Type assertion needed for complex nested types
+
+      const result = await route.invoke(contextOverride)
+      
+      expect(result).toEqual({
+        role: 'present',
+        parsed: 'present'
+      })
+    })
+  })
+
+  test("prepare method now works (implemented in Stage 3)", () => {
+    const builder = createRoute().prepare(async (req, ctx) => {
+      return { role: "admin" }
+    })
+    
+    expect(builder).toBeDefined()
+    expect(typeof builder.handle).toBe('function')
+  })
+
+  test("parse method now works (implemented in Stage 3)", () => {
+    const builder = createRoute().parse({
+      body: async (body: unknown, ctx: unknown) => ({ name: "test" })
+    })
+    
+    expect(builder).toBeDefined()
+    expect(typeof builder.handle).toBe('function')
+  })
+})

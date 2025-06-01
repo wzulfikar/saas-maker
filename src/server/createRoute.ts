@@ -31,14 +31,37 @@ type RouteOptions = {
   requestObject?: (args: unknown) => Request
 }
 
-// Base context type - will be extended by builder
+// Context types for progressive building
 type EmptyContext = Record<string, never>
+
+// Type utility to merge contexts progressively
+type MergeContexts<T, U> = T & U
+
+// Type utility for parsed results
+type WithParsed<TContext, TParsed> = TContext & { parsed: TParsed }
+
+// Type utility to merge parsed results (for multiple parse calls)
+type MergeParsed<TExisting, TNew> = {
+  [K in keyof TExisting | keyof TNew]: K extends keyof TNew
+    ? K extends keyof TExisting
+      ? TExisting[K] & TNew[K] // Intersection for type narrowing
+      : TNew[K]
+    : K extends keyof TExisting
+    ? TExisting[K]
+    : never
+}
+
+// Helper type to extract parsed context
+type ExtractParsed<T> = T extends { parsed: infer P } ? P : Record<string, never>
+
+// Helper type to extract non-parsed context
+type ExtractNonParsed<T> = Omit<T, 'parsed'>
 
 // HTTP methods supported
 type RouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "OPTIONS" | "HEAD"
 
 export const createRoute = (routeOptions: RouteOptions = {}) => {
-  return new RouteBuilder(routeOptions)
+  return new RouteBuilder<EmptyContext>(routeOptions)
 }
 
 export class RouteBuilder<TContext = EmptyContext> {
@@ -57,9 +80,16 @@ export class RouteBuilder<TContext = EmptyContext> {
 
   prepare<TNewContext extends Record<string, unknown>>(
     prepareFunction: (req: Request, ctx: TContext) => Promise<TNewContext | undefined>
-  ): RouteBuilder<TContext & TNewContext> {
-    // TODO: implement in Stage 4
-    throw new Error("Not implemented yet")
+  ): RouteBuilder<MergeContexts<TContext, TNewContext>> {
+    // Store the prepare step for later execution
+    this.prepareSteps.push(prepareFunction as (req: Request, ctx: unknown) => Promise<unknown>)
+    
+    // Return new builder with merged context type
+    const newBuilder = new RouteBuilder<MergeContexts<TContext, TNewContext>>(this.routeOptions)
+    newBuilder.prepareSteps = [...this.prepareSteps]
+    newBuilder.parseSteps = [...this.parseSteps]
+    
+    return newBuilder
   }
 
   parse<TParsed extends Record<string, unknown>>(payload: {
@@ -70,9 +100,27 @@ export class RouteBuilder<TContext = EmptyContext> {
     auth?: (authorizationHeader: string, ctx: TContext) => Promise<unknown>
     method?: RouteMethod | RouteMethod[]
     path?: string
-  } & Record<string, (req: Request, ctx: TContext) => Promise<unknown>>): RouteBuilder<TContext & { parsed: TParsed }> {
-    // TODO: implement in Stage 5
-    throw new Error("Not implemented yet")
+  } | Record<string, (req: Request, ctx: TContext) => Promise<unknown>>): RouteBuilder<
+    TContext extends { parsed: infer TExistingParsed }
+      ? MergeContexts<ExtractNonParsed<TContext>, WithParsed<Record<string, never>, MergeParsed<TExistingParsed, TParsed>>>
+      : WithParsed<TContext, TParsed>
+  > {
+    // Store the parse step for later execution
+    this.parseSteps.push({
+      payload,
+      parseFn: () => Promise.resolve({}) // TODO: implement actual parsing in Stage 5
+    })
+
+    // Create new builder with updated context type
+    type NewContextType = TContext extends { parsed: infer TExistingParsed }
+      ? MergeContexts<ExtractNonParsed<TContext>, WithParsed<Record<string, never>, MergeParsed<TExistingParsed, TParsed>>>
+      : WithParsed<TContext, TParsed>
+
+    const newBuilder = new RouteBuilder<NewContextType>(this.routeOptions)
+    newBuilder.prepareSteps = [...this.prepareSteps]
+    newBuilder.parseSteps = [...this.parseSteps]
+    
+    return newBuilder
   }
 
   handle<TResponse>(
@@ -91,7 +139,7 @@ export class RouteBuilder<TContext = EmptyContext> {
           await onRequest(request)
         }
 
-        // For now, use empty context (will be built in later stages)
+        // For now, use empty context (will be built properly in later stages)
         const context = {} as TContext
 
         // Call the actual handler
@@ -150,6 +198,6 @@ export class RouteBuilder<TContext = EmptyContext> {
 }
 
 interface RouteHandler<TContext, TResponse> {
-  (req: Request): Promise<TResponse>
+  (...args: unknown[]): Promise<TResponse>
   invoke(contextOverride?: TContext): Promise<TResponse>
 }
