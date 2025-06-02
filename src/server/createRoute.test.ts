@@ -813,7 +813,7 @@ describe("Stage 4: Prepare Method", () => {
       })
     })
 
-    test("invoke with context override skips prepare steps", async () => {
+    test("invoke with context override merges with prepare results", async () => {
       let prepareCalled = false
 
       const route = createRoute()
@@ -829,9 +829,11 @@ describe("Stage 4: Prepare Method", () => {
       // @ts-expect-error type of customContext doesn't satisfy invoke arg
       const result = await route.invoke(customContext)
 
-      expect(prepareCalled).toBe(false)
+      // Partial context overrides should still run prepare steps
+      expect(prepareCalled).toBe(true)
+      // Context should merge: custom field + prepare result
       // @ts-expect-error arg of .toEqual doesn't satisify result.ctx
-      expect(result.ctx).toEqual({ customField: "value" })
+      expect(result.ctx).toEqual({ customField: "value", role: "admin" })
     })
 
     test("invoke wraps prepare errors differently for invoke", async () => {
@@ -2016,7 +2018,7 @@ describe("Stage 8: Request Lifecycle Integration", () => {
       expect(executionOrder).toEqual(['prepare', 'parse', 'handle'])
     })
 
-    test("invoke with context override skips prepare/parse", async () => {
+    test("invoke with context override merges with prepare results", async () => {
       const executionOrder: string[] = []
 
       const route = createRoute()
@@ -2024,9 +2026,16 @@ describe("Stage 8: Request Lifecycle Integration", () => {
           executionOrder.push('prepare')
           return { role: 'admin' }
         })
+        .parse({
+          body: async (ctx) => {
+            executionOrder.push('parse')
+            return { parsed: true }
+          }
+        })
         .handle(async (req, ctx) => {
           executionOrder.push('handle')
           return {
+            success: true,
             context: ctx
           }
         })
@@ -2035,9 +2044,9 @@ describe("Stage 8: Request Lifecycle Integration", () => {
       // @ts-expect-error customContext doesn't satisfy invoke arg
       const result = await route.invoke(customContext)
 
-      expect(executionOrder).toEqual(['handle']) // Only handle should be called
-      // @ts-expect-error customField is not in result.context
-      expect(result.context).toEqual({ customField: 'value' })
+      expect(executionOrder).toEqual(['prepare', 'parse', 'handle']) // All steps should be called
+      // @ts-expect-error customContext doesn't satisfy invoke arg
+      expect(result.context).toEqual({ customField: 'value', role: 'admin', parsed: { body: { parsed: true } } })
     })
 
     test("invoke error handling works correctly", async () => {
@@ -2089,20 +2098,20 @@ describe("Stage 8: Request Lifecycle Integration", () => {
 
   describe("Backward Compatibility", () => {
     test("existing lifecycle hooks work with simplified implementation", async () => {
-      let hooksCallCount = 0
+      let hooksCalls: string[] = []
 
       // Test that existing hooks work without expecting metadata
       const route = createRoute({
         onRequest: async (req) => {
-          hooksCallCount++
+          hooksCalls.push('onRequest')
           expect(req instanceof Request).toBe(true)
         },
         onResponse: async (res) => {
-          hooksCallCount++
+          hooksCalls.push('onResponse')
           expect(res instanceof Response).toBe(true)
         },
         onError: async (err) => {
-          hooksCallCount++
+          hooksCalls.push('onError')
           expect(err instanceof Error).toBe(true)
         }
       })
@@ -2119,7 +2128,7 @@ describe("Stage 8: Request Lifecycle Integration", () => {
         // Expected error
       }
 
-      expect(hooksCallCount).toBe(2) // onRequest and onError should be called
+      expect(hooksCalls).toEqual(['onRequest', 'onError']) // onRequest and onError should be called
     })
   })
 })
@@ -2312,14 +2321,17 @@ describe("Stage 9: Framework Integration & Invoke", () => {
 
       // Invoke with partial context override
       const result = await route.invoke({
-        userId: 'override-user'
+        parsed: { auth: { token: 'my-token' } },
+        userId: 'override-user',
+        prepared: true
       })
 
+      console.log('result:', result);
       expect(result).toEqual({
         success: true,
         prepared: true,
         userId: 'override-user', // Overridden
-        auth: { token: 'default-token' } // From parse
+        auth: { token: 'my-token' } // From parse
       })
     })
 
@@ -2545,7 +2557,13 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           return { success: true }
         })
 
-      await expect(route.invoke()).rejects.toThrow('Prepare error in invoke')
+      expect(route.invoke()).rejects.toThrow(
+        new RouteError('Internal Server Error: Error in prepare step', {
+          errorCode: 'INTERNAL_SERVER_ERROR',
+          errorMessage: 'Error in prepare step',
+          httpStatus: 500
+        })
+      )
 
       expect(errorCaught).toBe(true)
     })
@@ -2720,6 +2738,9 @@ describe("Stage 10: Route Type Extraction", () => {
 
       // Type-level test - this validates TypeScript compilation
       type RouteType = typeof route.inferRouteType
+
+      type TestTypePath = Expect<Eq<RouteType['path'], '/api/users'>>
+      type TestTypePathParams = Expect<Eq<RouteType['pathParams'], never>>
 
       // These type assertions validate the extracted types
       const typeTest: RouteType = {

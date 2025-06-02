@@ -295,9 +295,6 @@ export class RouteBuilder<TContext = EmptyContext> {
               context = { ...context, ...result }
             }
           } catch (error) {
-            if (onError) {
-              await onError(error as Error)
-            }
             if (error instanceof RouteError) {
               throw error
             }
@@ -328,9 +325,6 @@ export class RouteBuilder<TContext = EmptyContext> {
               context.parsed = parsedContext
             }
           } catch (error) {
-            if (onError) {
-              await onError(error as Error)
-            }
             if (error instanceof RouteError) {
               throw error
             }
@@ -343,7 +337,12 @@ export class RouteBuilder<TContext = EmptyContext> {
           }
         }
 
-        const response = await handlerFn(request, context as TContext)
+        // Clean context before passing to handler - remove internal cache properties
+        const cleanContext = { ...context }
+        delete cleanContext._bodyCache
+        delete cleanContext._queryCache
+
+        const response = await handlerFn(request, cleanContext as TContext)
 
         if (onResponse) {
           let responseForHook: Response
@@ -390,13 +389,15 @@ export class RouteBuilder<TContext = EmptyContext> {
               context = { ...context, ...result }
             }
           } catch (error) {
-            if (onError) {
-              await onError(error as Error)
-            }
             if (error instanceof RouteError) {
               throw error
             }
-            throw new Error((error as Error).message)
+            throw new RouteError("Internal Server Error: Error in prepare step", {
+              errorCode: 'PREPARE_ERROR',
+              errorMessage: (error as Error).message,
+              httpStatus: 500,
+              cause: error as Error
+            })
           }
         }
 
@@ -417,17 +418,24 @@ export class RouteBuilder<TContext = EmptyContext> {
               context.parsed = parsedContext
             }
           } catch (error) {
-            if (onError) {
-              await onError(error as Error)
-            }
             if (error instanceof RouteError) {
               throw error
             }
-            throw new Error((error as Error).message)
+            throw new RouteError("Internal Server Error: Error in parse step", {
+              errorCode: 'PARSE_ERROR',
+              errorMessage: (error as Error).message,
+              httpStatus: 500,
+              cause: error as Error
+            })
           }
         }
 
-        return await handlerFn(mockRequest, context as TContext)
+        // Clean context before passing to handler - remove internal cache properties
+        const cleanContext = { ...context }
+        delete cleanContext._bodyCache
+        delete cleanContext._queryCache
+
+        return await handlerFn(mockRequest, cleanContext as TContext)
       } catch (error) {
         if (onError) {
           await onError(error as Error)
