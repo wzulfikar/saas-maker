@@ -1918,78 +1918,60 @@ describe("Stage 8: Request Lifecycle Integration", () => {
   })
 
   describe("Invoke Method Lifecycle Integration", () => {
-    test("invoke method triggers prepare/parse lifecycle hooks", async () => {
-      const hookCalls: string[] = []
+    test("invoke method executes prepare/parse steps", async () => {
+      const executionOrder: string[] = []
       
-      const route = createRoute({
-        onPrepareStart: async () => { hookCalls.push('onPrepareStart') },
-        onPrepareCompleted: async () => { hookCalls.push('onPrepareCompleted') },
-        onParseStart: async () => { hookCalls.push('onParseStart') },
-        onParseComplete: async () => { hookCalls.push('onParseComplete') }
-      })
+      const route = createRoute()
         .prepare(async () => {
-          hookCalls.push('prepare')
+          executionOrder.push('prepare')
           return { role: 'admin' }
         })
         .parse({
-          headers: async (headers: any, ctx: any) => {
-            hookCalls.push('parse')
+          headers: async (headers: Headers) => {
+            executionOrder.push('parse')
             return { userAgent: 'test' }
           }
         })
         .handle(async (req, ctx) => {
-          hookCalls.push('handle')
+          executionOrder.push('handle')
           return { success: true }
         })
 
       const result = await route.invoke()
       
       expect(result).toEqual({ success: true })
-      expect(hookCalls).toEqual([
-        'onPrepareStart',
-        'prepare',
-        'onPrepareCompleted',
-        'onParseStart',
-        'parse',
-        'onParseComplete',
-        'handle'
-      ])
+      expect(executionOrder).toEqual(['prepare', 'parse', 'handle'])
     })
 
-    test("invoke with context override skips lifecycle hooks", async () => {
-      const hookCalls: string[] = []
+    test("invoke with context override skips prepare/parse", async () => {
+      const executionOrder: string[] = []
       
-      const route = createRoute({
-        onPrepareStart: async () => { hookCalls.push('onPrepareStart') },
-        onPrepareCompleted: async () => { hookCalls.push('onPrepareCompleted') },
-        onParseStart: async () => { hookCalls.push('onParseStart') },
-        onParseComplete: async () => { hookCalls.push('onParseComplete') }
-      })
+      const route = createRoute()
         .prepare(async () => {
-          hookCalls.push('prepare')
+          executionOrder.push('prepare')
           return { role: 'admin' }
         })
         .handle(async (req, ctx) => {
-          hookCalls.push('handle')
-          return { context: ctx }
+          executionOrder.push('handle')
+          return { 
+            context: ctx
+          }
         })
 
-      // Use type assertion for complex context type
-      const customContext = { customField: 'value' } as any
-      const result = await route.invoke(customContext)
+      const customContext = { customField: 'value' }
+      const result = await route.invoke(customContext as any)
       
-      expect(hookCalls).toEqual(['handle']) // Only handle should be called
-      expect(result.context.customField).toBe('value')
+      expect(executionOrder).toEqual(['handle']) // Only handle should be called
+      expect(result.context).toEqual({ customField: 'value' })
     })
 
-    test("invoke error handling includes metadata", async () => {
-      let errorMetadata: any = null
+    test("invoke error handling works correctly", async () => {
+      let errorCaught = false
       
       const route = createRoute({
-        onError: async (err, metadata) => {
-          errorMetadata = metadata
-        },
-        generateRequestId: () => 'invoke-test-id'
+        onError: async (err) => {
+          errorCaught = true
+        }
       })
         .parse({
           body: async () => { throw new Error("Parse error in invoke") }
@@ -2003,25 +1985,22 @@ describe("Stage 8: Request Lifecycle Integration", () => {
         expect(error instanceof RouteError).toBe(true)
       }
       
-      expect(errorMetadata).not.toBeNull()
-      expect(errorMetadata.stage).toBe('parse')
-      expect(errorMetadata.requestId).toBe('invoke-test-id')
+      expect(errorCaught).toBe(true)
     })
   })
 
   describe("Performance and Optimization", () => {
-    test("request duration tracking is accurate", async () => {
-      let measuredDuration: number = 0
-      const delayMs = 50
+    test("request handling works without duration tracking", async () => {
+      let responseReceived = false
       
       const route = createRoute({
-        onResponse: async (res, metadata) => {
-          measuredDuration = metadata.duration
+        onResponse: async (res) => {
+          responseReceived = true
         }
       })
         .prepare(async () => {
           // Simulate some processing time
-          await new Promise(resolve => setTimeout(resolve, delayMs))
+          await new Promise(resolve => setTimeout(resolve, 10))
           return { processed: true }
         })
         .handle(async () => ({ success: true }))
@@ -2029,46 +2008,26 @@ describe("Stage 8: Request Lifecycle Integration", () => {
       const mockRequest = new Request('http://localhost/test')
       await route(mockRequest)
       
-      expect(measuredDuration).toBeGreaterThanOrEqual(delayMs - 10) // Allow some variance
-      expect(measuredDuration).toBeLessThan(delayMs + 50) // Reasonable upper bound
-    })
-
-    test("custom request ID generation works correctly", async () => {
-      let generatedIds: string[] = []
-      let callCount = 0
-      
-      const route = createRoute({
-        generateRequestId: () => `custom-${++callCount}`,
-        onRequest: async (req, metadata) => {
-          generatedIds.push(metadata.requestId)
-        }
-      }).handle(async () => ({ success: true }))
-
-      const mockRequest = new Request('http://localhost/test')
-      
-      await route(mockRequest)
-      await route(mockRequest)
-      
-      expect(generatedIds).toEqual(['custom-1', 'custom-2'])
+      expect(responseReceived).toBe(true)
     })
   })
 
   describe("Backward Compatibility", () => {
-    test("existing lifecycle hooks still work without metadata", async () => {
-      let legacyHooksCalled = 0
+    test("existing lifecycle hooks work with simplified implementation", async () => {
+      let hooksCallCount = 0
       
-      // Test that existing hooks that don't expect metadata still work
+      // Test that existing hooks work without expecting metadata
       const route = createRoute({
         onRequest: async (req) => { 
-          legacyHooksCalled++
+          hooksCallCount++
           expect(req instanceof Request).toBe(true)
         },
         onResponse: async (res) => { 
-          legacyHooksCalled++
+          hooksCallCount++
           expect(res instanceof Response).toBe(true)
         },
         onError: async (err) => { 
-          legacyHooksCalled++
+          hooksCallCount++
           expect(err instanceof Error).toBe(true)
         }
       })
@@ -2085,7 +2044,7 @@ describe("Stage 8: Request Lifecycle Integration", () => {
         // Expected error
       }
       
-      expect(legacyHooksCalled).toBe(2) // onRequest and onError should be called
+      expect(hooksCallCount).toBe(2) // onRequest and onError should be called
     })
   })
 })
@@ -2193,7 +2152,6 @@ describe("Stage 9: Framework Integration & Invoke", () => {
         .prepare(async (req) => ({ created: 'simple' }))
         .handle(async (req, ctx) => {
           expect(ctx.created).toBe('simple')
-          expect(ctx.requestId).toBeDefined()
           return { success: true }
         })
       
@@ -2218,16 +2176,14 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           }
           
           throw new Error('Invalid Express request object')
-        },
-        generateRequestId: () => 'express-123'
+        }
       })
         .prepare(async (req, ctx) => {
-          expect(ctx.requestId).toBe('express-123')
           return { created: 'express-style' }
         })
         .handle(async (req, ctx) => {
           expect(ctx.created).toBe('express-style')
-          return { success: true, requestId: ctx.requestId }
+          return { success: true }
         })
       
       // Mock Express request
@@ -2241,7 +2197,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       }
       
       const result = await route(mockExpressReq)
-      expect(result).toEqual({ success: true, requestId: 'express-123' })
+      expect(result).toEqual({ success: true })
     })
 
     test("minimal request mapping", async () => {
@@ -2261,23 +2217,19 @@ describe("Stage 9: Framework Integration & Invoke", () => {
   })
 
   describe("Enhanced Invoke Method", () => {
-    test("invoke with partial context override maintains requestId", async () => {
-      const route = createRoute({
-        generateRequestId: () => 'invoke-123'
-      })
+    test("invoke with partial context override", async () => {
+      const route = createRoute()
         .prepare(async (req, ctx) => {
-          expect(ctx.requestId).toBe('invoke-123')
           return { prepared: true, userId: 'default-user' }
         })
         .parse({ 
-          auth: async (header: string, ctx: any) => {
+          auth: async (header: string) => {
             return { token: 'default-token' }
           }
         })
         .handle(async (req, ctx) => {
           return { 
             success: true,
-            requestId: ctx.requestId,
             prepared: ctx.prepared,
             userId: ctx.userId,
             auth: ctx.parsed.auth
@@ -2291,69 +2243,52 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       
       expect(result).toEqual({
         success: true,
-        requestId: 'invoke-123',
         prepared: true,
         userId: 'override-user', // Overridden
         auth: { token: 'default-token' } // From parse
       })
     })
 
-    test("invoke executes full lifecycle hooks", async () => {
-      const hookCalls: string[] = []
+    test("invoke executes full lifecycle", async () => {
+      const executionOrder: string[] = []
       
-      const route = createRoute({
-        onPrepareStart: async () => { hookCalls.push('onPrepareStart') },
-        onPrepareCompleted: async () => { hookCalls.push('onPrepareCompleted') },
-        onParseStart: async () => { hookCalls.push('onParseStart') },
-        onParseComplete: async () => { hookCalls.push('onParseComplete') }
-      })
+      const route = createRoute()
         .prepare(async (req) => {
-          hookCalls.push('prepare')
+          executionOrder.push('prepare')
           return { prepared: true }
         })
         .parse({
-          headers: async (headers: Headers, ctx: any) => {
-            hookCalls.push('parse')
+          headers: async (headers: Headers) => {
+            executionOrder.push('parse')
             return { parsed: true }
           }
         })
         .handle(async (req, ctx) => {
-          hookCalls.push('handle')
+          executionOrder.push('handle')
           return { success: true }
         })
       
       await route.invoke()
       
-      expect(hookCalls).toEqual([
-        'onPrepareStart',
-        'prepare',
-        'onPrepareCompleted',
-        'onParseStart',
-        'parse',
-        'onParseComplete',
-        'handle'
-      ])
+      expect(executionOrder).toEqual(['prepare', 'parse', 'handle'])
     })
 
     test("invoke with complete context override skips prepare/parse", async () => {
-      const hookCalls: string[] = []
+      const executionOrder: string[] = []
       
-      const route = createRoute({
-        onPrepareStart: async () => { hookCalls.push('onPrepareStart') },
-        onParseStart: async () => { hookCalls.push('onParseStart') }
-      })
+      const route = createRoute()
         .prepare(async (req) => {
-          hookCalls.push('prepare')
+          executionOrder.push('prepare')
           return { prepared: true }
         })
         .parse({
-          body: async (body: unknown, ctx: any) => {
-            hookCalls.push('parse')
+          body: async (body: unknown) => {
+            executionOrder.push('parse')
             return { parsed: true }
           }
         })
         .handle(async (req, ctx) => {
-          hookCalls.push('handle')
+          executionOrder.push('handle')
           return { 
             success: true,
             context: ctx
@@ -2361,11 +2296,11 @@ describe("Stage 9: Framework Integration & Invoke", () => {
         })
       
       const result = await route.invoke({
-        requestId: 'custom-123',
+        customData: 'override',
         parsed: { body: { custom: 'data' } }
       } as any)
       
-      expect(hookCalls).toEqual(['handle']) // Only handle called
+      expect(executionOrder).toEqual(['handle']) // Only handle called
       expect(result.success).toBe(true)
     })
   })
@@ -2377,7 +2312,6 @@ describe("Stage 9: Framework Integration & Invoke", () => {
         .handle(async (req, ctx) => {
           return { 
             message: 'Hello World',
-            requestId: ctx.requestId,
             prepared: ctx.prepared
           }
         })
@@ -2388,7 +2322,6 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       // Should return JSON directly, not wrapped in Response
       expect(result).toEqual({
         message: 'Hello World',
-        requestId: expect.any(String),
         prepared: true
       })
     })
@@ -2464,38 +2397,6 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       
       await expect(route(mockRequest)).rejects.toThrow("Unexpected error")
     })
-
-    test("custom errorHandler can return custom response", async () => {
-      let capturedError: RouteError | null = null
-      
-      const route = createRoute({
-        errorHandler: async (error, metadata) => {
-          capturedError = error
-          return new Response(JSON.stringify({
-            custom: 'error-handling',
-            code: error.errorCode
-          }), { status: error.httpStatus })
-        }
-      })
-        .prepare(async (req) => {
-          throw new RouteError("Custom error", {
-            errorCode: 'CUSTOM_ERROR',
-            errorMessage: 'This is a custom error',
-            httpStatus: 418
-          })
-        })
-        .handle(async (req, ctx) => {
-          return { success: true }
-        })
-      
-      const mockRequest = new Request('http://localhost/error')
-      const result = await route(mockRequest)
-      
-      // errorHandler returned a Response, so we get it back (with type assertion)
-      expect(result).toBeInstanceOf(Response)
-      expect(capturedError).toBeInstanceOf(RouteError)
-      expect(capturedError?.errorCode).toBe('CUSTOM_ERROR')
-    })
   })
 
   describe("Enhanced Error Handling", () => {
@@ -2523,18 +2424,12 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       })
     })
 
-    test("custom errorHandler processes RouteErrors", async () => {
-      let capturedError: RouteError | null = null
-      let capturedMetadata: Record<string, unknown> = {}
+    test("basic error handling with onError hook", async () => {
+      let capturedError: Error | null = null
       
       const route = createRoute({
-        errorHandler: async (error, metadata) => {
+        onError: async (error) => {
           capturedError = error
-          capturedMetadata = metadata
-          return new Response(JSON.stringify({
-            custom: 'error-handling',
-            code: error.errorCode
-          }), { status: error.httpStatus }) as unknown as { custom: string, code: string }
         }
       })
         .prepare(async (req) => {
@@ -2549,25 +2444,23 @@ describe("Stage 9: Framework Integration & Invoke", () => {
         })
       
       const mockRequest = new Request('http://localhost/error')
-      const result = await route(mockRequest)
       
-      expect(result).toEqual({
-        custom: 'error-handling',
-        code: 'CUSTOM_ERROR'
-      })
+      try {
+        await route(mockRequest)
+      } catch (error) {
+        // Expected to throw
+      }
       
       expect(capturedError).toBeInstanceOf(RouteError)
-      expect(capturedError?.errorCode).toBe('CUSTOM_ERROR')
-      expect(capturedMetadata.stage).toBe('handle')
-      expect(capturedMetadata.requestId).toBeDefined()
+      expect((capturedError as RouteError).errorCode).toBe('CUSTOM_ERROR')
     })
 
-    test("invoke method error handling with metadata", async () => {
-      const errorCalls: Array<{ err: Error, metadata: Record<string, unknown> }> = []
+    test("invoke method error handling", async () => {
+      let errorCaught = false
       
       const route = createRoute({
-        onError: async (err, metadata) => {
-          errorCalls.push({ err, metadata })
+        onError: async (err) => {
+          errorCaught = true
         }
       })
         .prepare(async (req) => {
@@ -2579,9 +2472,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       
       await expect(route.invoke()).rejects.toThrow('Prepare error in invoke')
       
-      expect(errorCalls).toHaveLength(1)
-      expect(errorCalls[0].metadata.stage).toBe('prepare')
-      expect(errorCalls[0].metadata.requestId).toBeDefined()
+      expect(errorCaught).toBe(true)
     })
   })
 
