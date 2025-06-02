@@ -56,7 +56,10 @@ type ExtractSingleParamResults<T> =
   (T extends { auth?: (ctx: any) => Promise<infer A> } ? { auth: A } : {}) &
   (T extends { headers?: (ctx: any) => Promise<infer H> } ? { headers: H } : {}) &
   (T extends { cookies?: (ctx: any) => Promise<infer C> } ? { cookies: C } : {}) &
-  (T extends { method?: infer M } ? M extends RouteMethod | RouteMethod[] ? { method: M } : {} : {}) &
+  (T extends { method?: infer M } ? 
+    M extends RouteMethod[] ? { method: M[number] } : 
+    M extends RouteMethod ? { method: M } : 
+    {} : {}) &
   (T extends { path?: infer P } ? P extends string ? { path: { matched: P, params: Record<string, unknown> } } : {} : {}) &
   // Handle custom fields by extracting all non-predefined function properties
   {
