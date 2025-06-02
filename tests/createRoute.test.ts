@@ -1,6 +1,6 @@
 import { describe, test, expect } from "bun:test"
-import { createRoute, RouteError } from "./createRoute"
-import type { Expect, Eq } from "../types-helper"
+import { createRoute, RouteError } from "../src/server/createRoute"
+import type { Expect, Eq } from "../src/types-helper"
 
 describe("Stage 1: Foundation Types & RouteError", () => {
   describe("RouteError", () => {
