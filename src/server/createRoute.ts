@@ -124,17 +124,99 @@ type MergeParsed<TExisting, TNew> = {
     : never
 }
 
-// Helper type to extract parsed context
+// Type utility to extract parsed context
 type ExtractParsed<T> = T extends { parsed: infer P } ? P : Record<string, never>
 
 // Helper type to extract non-parsed context
 type ExtractNonParsed<T> = Omit<T, 'parsed'>
 
-// Type utilities for route type extraction
+// Helper type to infer result types from parser functions with proper literal type preservation
+type InferParsedResult<T> = T extends {
+  headers?: (headers: Headers, ctx: unknown) => Promise<infer H>
+  body?: (body: unknown, ctx: unknown) => Promise<infer B>
+  query?: (query: Record<string, string>, ctx: unknown) => Promise<infer Q>
+  cookies?: (cookies: Record<string, string>, ctx: unknown) => Promise<infer C>
+  auth?: (authorizationHeader: string, ctx: unknown) => Promise<infer A>
+  method?: infer M
+  path?: infer P
+} ? {
+  [K in keyof T as K extends 'method' ? (T[K] extends undefined ? never : 'method') 
+                   : K extends 'path' ? (T[K] extends undefined ? never : 'path')
+                   : K extends 'headers' ? (T[K] extends undefined ? never : 'headers')
+                   : K extends 'body' ? (T[K] extends undefined ? never : 'body') 
+                   : K extends 'query' ? (T[K] extends undefined ? never : 'query')
+                   : K extends 'cookies' ? (T[K] extends undefined ? never : 'cookies')
+                   : K extends 'auth' ? (T[K] extends undefined ? never : 'auth')
+                   : never]: 
+    K extends 'method' ? M
+    : K extends 'path' ? (P extends string ? { matched: P, params: Record<string, unknown> } : never)
+    : K extends 'headers' ? H
+    : K extends 'body' ? B
+    : K extends 'query' ? Q  
+    : K extends 'cookies' ? C
+    : K extends 'auth' ? A
+    : never
+} : T extends Record<string, (req: Request, ctx: unknown) => Promise<infer R>>
+  ? { [K in keyof T]: R }
+  : Record<string, unknown>
+
+// Type utility to filter out never values from inferred types
+type FilterNever<T> = {
+  [K in keyof T as T[K] extends never ? never : K]: T[K]
+}
+
+// HTTP methods supported
+type RouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "OPTIONS" | "HEAD"
+
+// Simplified type system that actually works
+type ParsePayload = {
+  headers?: (headers: Headers, ctx: unknown) => Promise<unknown>
+  body?: (body: unknown, ctx: unknown) => Promise<unknown>
+  query?: (query: Record<string, string>, ctx: unknown) => Promise<unknown>
+  cookies?: (cookies: Record<string, string>, ctx: unknown) => Promise<unknown>
+  auth?: (authorizationHeader: string, ctx: unknown) => Promise<unknown>
+  method?: RouteMethod | RouteMethod[]
+  path?: string
+} | Record<string, (req: Request, ctx: unknown) => Promise<unknown>>
+
+// FIXED: Simple extraction of parse results - properly map each field to its return type
+type ExtractParseResultSimple<T> = T extends {
+  headers?: (headers: Headers, ctx: unknown) => Promise<infer H>
+  body?: (body: unknown, ctx: unknown) => Promise<infer B>
+  query?: (query: Record<string, string>, ctx: unknown) => Promise<infer Q>
+  cookies?: (cookies: Record<string, string>, ctx: unknown) => Promise<infer C>
+  auth?: (authorizationHeader: string, ctx: unknown) => Promise<infer A>
+  method?: infer M
+  path?: infer P
+} ? {
+  // FIXED: Map each field to its specific return type, not union
+  [K in keyof T as T[K] extends undefined ? never : K]: 
+    K extends 'method' ? M
+    : K extends 'path' ? (P extends string ? { matched: P, params: Record<string, unknown> } : never)
+    : K extends 'headers' ? H
+    : K extends 'body' ? B
+    : K extends 'query' ? Q  
+    : K extends 'cookies' ? C
+    : K extends 'auth' ? A
+    : never
+} : T extends Record<string, (req: Request, ctx: unknown) => Promise<unknown>>
+  ? { 
+      // FIXED: Map each custom field to its specific return type  
+      [K in keyof T]: T[K] extends (req: Request, ctx: unknown) => Promise<infer R> ? R : never
+    }
+  : Record<string, unknown>
+
+// Remove never fields
+type RemoveNever<T> = {
+  [K in keyof T as T[K] extends never ? never : K]: T[K]
+}
+
+// Simplified context building
+type SimpleParsedContext<T> = { parsed: RemoveNever<ExtractParseResultSimple<T>> }
+
+// Type utilities for route type extraction (simplified)
 type ExtractPathType<TContext> = TContext extends { parsed: { path: infer P } } 
-  ? P extends { matched: infer M } 
-    ? M 
-    : string
+  ? P extends { matched: infer M } ? M : string
   : string
 
 type ExtractMethodType<TContext> = TContext extends { parsed: { method: infer M } } 
@@ -158,9 +240,6 @@ type RouteTypeInfo<TContext, TResponse> = {
   input: ExtractInputType<TContext>
   returnValue: TResponse
 }
-
-// HTTP methods supported
-type RouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "OPTIONS" | "HEAD"
 
 // Enhanced createRoute with framework integration
 export const createRoute = (routeOptions: RouteOptions = {}) => {
@@ -198,30 +277,24 @@ export class RouteBuilder<TContext = EmptyContext> {
     // Store the prepare step for later execution
     this.prepareSteps.push(prepareFunction as (req: Request, ctx: unknown) => Promise<unknown>)
     
-    // Return new builder with merged context type
+    // Return new builder with updated context type
     const newBuilder = new RouteBuilder<MergeContexts<TContext, TNewContext>>(this.routeOptions)
     newBuilder.prepareSteps = [...this.prepareSteps]
     newBuilder.parseSteps = [...this.parseSteps]
-    
     return newBuilder
   }
 
-  parse<TParsed extends Record<string, unknown>>(
-    payload: 
-      | {
-          headers?: (headers: Headers, ctx: TContext) => Promise<unknown>
-          body?: (body: unknown, ctx: TContext) => Promise<unknown>
-          query?: (query: Record<string, string>, ctx: TContext) => Promise<unknown>
-          cookies?: (cookies: Record<string, string>, ctx: TContext) => Promise<unknown>
-          auth?: (authorizationHeader: string, ctx: TContext) => Promise<unknown>
-          method?: RouteMethod | RouteMethod[]
-          path?: string
-        }
-      | Record<string, (req: Request, ctx: TContext) => Promise<unknown>>
+  parse<
+    TPayload extends ParsePayload
+  >(
+    payload: TPayload
   ): RouteBuilder<
     TContext extends { parsed: infer TExistingParsed }
-      ? MergeContexts<ExtractNonParsed<TContext>, WithParsed<Record<string, never>, MergeParsed<TExistingParsed, TParsed>>>
-      : WithParsed<TContext, TParsed>
+      ? MergeContexts<
+          ExtractNonParsed<TContext>, 
+          SimpleParsedContext<TPayload>
+        >
+      : MergeContexts<TContext, SimpleParsedContext<TPayload>>
   > {
     // Store the parse step for later execution
     this.parseSteps.push({
@@ -436,11 +509,11 @@ export class RouteBuilder<TContext = EmptyContext> {
     })
 
     // Create new builder with updated context type
-    type NewContextType = TContext extends { parsed: infer TExistingParsed }
-      ? MergeContexts<ExtractNonParsed<TContext>, WithParsed<Record<string, never>, MergeParsed<TExistingParsed, TParsed>>>
-      : WithParsed<TContext, TParsed>
-
-    const newBuilder = new RouteBuilder<NewContextType>(this.routeOptions)
+    const newBuilder = new RouteBuilder<
+      TContext extends { parsed: infer TExistingParsed }
+        ? MergeContexts<ExtractNonParsed<TContext>, SimpleParsedContext<TPayload>>
+        : MergeContexts<TContext, SimpleParsedContext<TPayload>>
+    >(this.routeOptions)
     newBuilder.prepareSteps = [...this.prepareSteps]
     newBuilder.parseSteps = [...this.parseSteps]
     
