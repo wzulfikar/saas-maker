@@ -27,7 +27,7 @@ export class RouteError extends Error {
 type RouteOptions = {
   onRequest?: (req: Request) => Promise<void>
   onResponse?: (res: Response) => Promise<void>
-  onError?: (err: Error) => Promise<void>
+  onError?: (err: Error) => Promise<void> | Promise<Response>
   requestObject?: (args: unknown) => Request
 }
 
@@ -40,13 +40,13 @@ type RouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "OPTIONS" | "HE
 
 // Single-parameter parse payload with automatic literal type inference
 type SingleParamParsePayload<TContext> = {
-  body?: (ctx: TContext & { body: Record<string, unknown> }) => Promise<unknown>
-  query?: (ctx: TContext & { query: Record<string, string> }) => Promise<unknown>
+  path?: string
+  method?: RouteMethod | readonly RouteMethod[]
   auth?: (ctx: TContext & { authHeader: string }) => Promise<unknown>
   headers?: (ctx: TContext & { headers: Headers }) => Promise<unknown>
   cookies?: (ctx: TContext & { cookies: Record<string, string> }) => Promise<unknown>
-  method?: RouteMethod | readonly RouteMethod[]
-  path?: string
+  body?: (ctx: TContext & { body: Record<string, unknown> }) => Promise<unknown>
+  query?: (ctx: TContext & { query: Record<string, string> }) => Promise<unknown>
 }
 
 // Type to extract parse results from single-param payload with proper inference
@@ -56,10 +56,10 @@ type ExtractSingleParamResults<T> =
   (T extends { auth?: (ctx: any) => Promise<infer A> } ? { auth: A } : {}) &
   (T extends { headers?: (ctx: any) => Promise<infer H> } ? { headers: H } : {}) &
   (T extends { cookies?: (ctx: any) => Promise<infer C> } ? { cookies: C } : {}) &
-  (T extends { method?: infer M } ? 
+  (T extends { method?: infer M } ?
     M extends readonly RouteMethod[] ? { method: M[number] } :
-    M extends RouteMethod[] ? { method: M[number] } : 
-    M extends RouteMethod ? { method: M } : 
+    M extends RouteMethod[] ? { method: M[number] } :
+    M extends RouteMethod ? { method: M } :
     {} : {}) &
   (T extends { path?: infer P } ? P extends string ? { path: { matched: P, params: Record<string, unknown> } } : {} : {}) &
   // Handle custom fields by extracting all non-predefined function properties
@@ -79,15 +79,15 @@ type RemoveNever<T> = {
 
 // "Last wins" type merger - correctly handles field-level replacement
 type LastWinsMerge<TExisting, TNew> = {
-  [K in keyof TExisting | keyof TNew]: K extends keyof TNew 
-    ? TNew[K] 
-    : K extends keyof TExisting 
-      ? TExisting[K] 
-      : never
+  [K in keyof TExisting | keyof TNew]: K extends keyof TNew
+  ? TNew[K]
+  : K extends keyof TExisting
+  ? TExisting[K]
+  : never
 }
 
 // Helper type for parse result merging
-type ParseResult<TContext, TPayload> = TContext extends { parsed: infer TExisting } 
+type ParseResult<TContext, TPayload> = TContext extends { parsed: infer TExisting }
   ? Omit<TContext, 'parsed'> & { parsed: LastWinsMerge<TExisting, RemoveNever<ExtractSingleParamResults<TPayload>>> }
   : TContext & { parsed: RemoveNever<ExtractSingleParamResults<TPayload>> }
 
@@ -360,7 +360,12 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
         return response
       } catch (error) {
         if (onError) {
-          await onError(error as Error)
+          const response = await onError(error as Error)
+          if (response instanceof Response) {
+            // {error: {message: string, code: string}}
+            // TODO: fix type. don't infer return value from happy path's type if there's error. should we add `errorValue`?
+            return response as unknown as TResponse
+          }
         }
         throw error
       }
@@ -470,42 +475,42 @@ interface EnhancedRouteHandler<TContext, TResponse, TAccumulatedPayloads = {}> {
 }
 
 // Path parameter extraction helper
-type ExtractPathParams<T extends string> = 
+type ExtractPathParams<T extends string> =
   T extends `${infer Start}/[${infer Param}]${infer Rest}`
-    ? { [K in Param]: string } & ExtractPathParams<`${Start}${Rest}`>
-    : T extends `${infer Start}/[${infer Param}]`
-    ? { [K in Param]: string }
-    : {}
+  ? { [K in Param]: string } & ExtractPathParams<`${Start}${Rest}`>
+  : T extends `${infer Start}/[${infer Param}]`
+  ? { [K in Param]: string }
+  : {}
 
 // Transform path parameters from [param] to ${string} for API client types
-type TransformPathParams<T extends string> = 
+type TransformPathParams<T extends string> =
   T extends `${infer Start}[${infer Param}]${infer Rest}`
-    ? `${Start}${string}${TransformPathParams<Rest>}`
-    : T
+  ? `${Start}${string}${TransformPathParams<Rest>}`
+  : T
 
 // Enhanced route type extraction with automatic literal type inference
 type RouteTypeInfo<TContext, TResponse, TAccumulatedPayloads = {}> = {
-  path: TAccumulatedPayloads extends { path: infer P } 
-    ? P extends string 
-      ? P extends `${string}[${string}]${string}` 
-        ? TransformPathParams<P>  // Transform [id] to ${string}
-        : P  // Keep literal for simple paths
-      : string
-    : string
-  pathParams: TAccumulatedPayloads extends { path: infer P } 
-    ? P extends string 
-      ? P extends `${string}[${string}]${string}`
-        ? ExtractPathParams<P> 
-        : {}
-      : never
-    : {}
+  path: TAccumulatedPayloads extends { path: infer P }
+  ? P extends string
+  ? P extends `${string}[${string}]${string}`
+  ? TransformPathParams<P>  // Transform [id] to ${string}
+  : P  // Keep literal for simple paths
+  : string
+  : string
+  pathParams: TAccumulatedPayloads extends { path: infer P }
+  ? P extends string
+  ? P extends `${string}[${string}]${string}`
+  ? ExtractPathParams<P>
+  : {}
+  : never
+  : {}
   method: TAccumulatedPayloads extends { method: infer M }
-    ? M extends readonly RouteMethod[] 
-      ? M[number]
-      : M extends RouteMethod
-        ? M
-        : string
-    : string
+  ? M extends readonly RouteMethod[]
+  ? M[number]
+  : M extends RouteMethod
+  ? M
+  : string
+  : string
   input: {
     body: TAccumulatedPayloads extends { body: (ctx: any) => Promise<infer B> } ? B : undefined
     query: TAccumulatedPayloads extends { query: (ctx: any) => Promise<infer Q> } ? Q : undefined
