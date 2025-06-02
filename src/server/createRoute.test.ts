@@ -2727,7 +2727,7 @@ describe("Stage 10: Route Type Extraction", () => {
       const route = createRoute()
         .parse({
           method: 'POST',
-          path: '/api/users'
+          path: '/api/users' as const
         })
         .handle(async (req, ctx) => {
           return {
@@ -2738,21 +2738,37 @@ describe("Stage 10: Route Type Extraction", () => {
 
       // Type-level test - this validates TypeScript compilation
       type RouteType = typeof route.inferRouteType
-
       type TestTypePath = Expect<Eq<RouteType['path'], '/api/users'>>
-      type TestTypePathParams = Expect<Eq<RouteType['pathParams'], never>>
-
-      // These type assertions validate the extracted types
-      const typeTest: RouteType = {
-        path: '/api/users' as const,
-        method: 'POST' as const,
-        input: { body: undefined, query: undefined },
-        returnValue: { success: true, message: 'User created' }
-      }
+      type TestTypePathParams = Expect<Eq<RouteType['pathParams'], {}>>
+      type TestTypeMethod = Expect<Eq<RouteType['method'], 'POST'>>
+      type TestTypeInput = Expect<Eq<RouteType['input'], { body: undefined, query: undefined }>>
+      type TestTypeReturnValue = Expect<Eq<RouteType['returnValue'], { success: boolean, message: string }>>
 
       // Runtime validation that the property exists
       expect(route.inferRouteType).toBeDefined()
       expect(typeof route.inferRouteType).toBe('object')
+
+      const route2 = createRoute()
+        .parse({
+          method: 'GET',
+          path: '/api/users/[id]' as const,
+          body: async (ctx) => {
+            return {
+              name: ctx.body.name as string,
+              email: ctx.body.email as string
+            }
+          }
+        })
+        .handle(async (req, ctx) => {
+          return {}
+        })
+
+      type RouteType2 = typeof route2.inferRouteType
+      type TestTypePath2 = Expect<Eq<RouteType2['path'], '/api/users/[id]'>>
+      type TestTypePathParams2 = Expect<Eq<RouteType2['pathParams'], { id: string }>>
+      type TestTypeMethod2 = Expect<Eq<RouteType2['method'], 'GET'>>
+      type TestTypeInput2 = Expect<Eq<RouteType2['input'], { body: { name: string, email: string }, query: undefined }>>
+      type TestTypeReturnValue2 = Expect<Eq<RouteType2['returnValue'], {}>>
     })
 
     test("inferRouteType extracts input types from body and query", () => {
@@ -2783,6 +2799,7 @@ describe("Stage 10: Route Type Extraction", () => {
       const typeTest: RouteType = {
         path: 'any-string' as string,
         method: 'POST' as const,
+        pathParams: {},
         input: {
           body: { name: 'test', email: 'test@example.com' },
           query: { page: 1, limit: 10 }
@@ -2812,6 +2829,7 @@ describe("Stage 10: Route Type Extraction", () => {
       const typeTest: RouteType = {
         path: 'any-string' as string,
         method: 'any-method' as string,
+        pathParams: {},
         input: { body: undefined, query: undefined },
         returnValue: { message: 'Simple route', timestamp: 12345 }
       }
@@ -2836,7 +2854,7 @@ describe("Stage 10: Route Type Extraction", () => {
             }
           },
           method: ['GET', 'POST'] as const,
-          path: '/api/users/:id'
+          path: '/api/users/[id]'
         })
         .handle(async (req, ctx) => {
           return {

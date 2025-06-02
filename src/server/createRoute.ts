@@ -38,14 +38,14 @@ type MergeContexts<T, U> = T & U
 // HTTP methods supported
 type RouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "OPTIONS" | "HEAD"
 
-// Single-parameter parse payload - the key insight that eliminates overload resolution issues
+// Single-parameter parse payload with automatic literal type inference
 type SingleParamParsePayload<TContext> = {
   body?: (ctx: TContext & { body: Record<string, unknown> }) => Promise<unknown>
   query?: (ctx: TContext & { query: Record<string, string> }) => Promise<unknown>
   auth?: (ctx: TContext & { authHeader: string }) => Promise<unknown>
   headers?: (ctx: TContext & { headers: Headers }) => Promise<unknown>
   cookies?: (ctx: TContext & { cookies: Record<string, string> }) => Promise<unknown>
-  method?: RouteMethod | RouteMethod[]
+  method?: RouteMethod | readonly RouteMethod[]
   path?: string
 }
 
@@ -57,6 +57,7 @@ type ExtractSingleParamResults<T> =
   (T extends { headers?: (ctx: any) => Promise<infer H> } ? { headers: H } : {}) &
   (T extends { cookies?: (ctx: any) => Promise<infer C> } ? { cookies: C } : {}) &
   (T extends { method?: infer M } ? 
+    M extends readonly RouteMethod[] ? { method: M[number] } :
     M extends RouteMethod[] ? { method: M[number] } : 
     M extends RouteMethod ? { method: M } : 
     {} : {}) &
@@ -90,12 +91,11 @@ type ParseResult<TContext, TPayload> = TContext extends { parsed: infer TExistin
   ? Omit<TContext, 'parsed'> & { parsed: LastWinsMerge<TExisting, RemoveNever<ExtractSingleParamResults<TPayload>>> }
   : TContext & { parsed: RemoveNever<ExtractSingleParamResults<TPayload>> }
 
-// Enhanced createRoute with single-parameter approach
-export const createRoute = (routeOptions: RouteOptions = {}) => {
-  return new RouteBuilder<EmptyContext>(routeOptions)
-}
+// Helper type for accumulating parse payloads
+type AccumulatePayloads<TExisting, TNew> = TExisting & TNew
 
-export class RouteBuilder<TContext = EmptyContext> {
+// Enhanced RouteBuilder that tracks parse payloads for type extraction
+export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
   private prepareSteps: Array<(req: Request, ctx: unknown) => Promise<unknown>> = []
   private parseSteps: Array<{
     payload: unknown
@@ -111,18 +111,18 @@ export class RouteBuilder<TContext = EmptyContext> {
 
   prepare<TNewContext extends Record<string, unknown>>(
     prepareFunction: (req: Request, ctx: TContext) => Promise<TNewContext | undefined>
-  ): RouteBuilder<MergeContexts<TContext, TNewContext>> {
+  ): RouteBuilder<MergeContexts<TContext, TNewContext>, TAccumulatedPayloads> {
     this.prepareSteps.push(prepareFunction as (req: Request, ctx: unknown) => Promise<unknown>)
-    const newBuilder = new RouteBuilder<MergeContexts<TContext, TNewContext>>(this.routeOptions)
+    const newBuilder = new RouteBuilder<MergeContexts<TContext, TNewContext>, TAccumulatedPayloads>(this.routeOptions)
     newBuilder.prepareSteps = [...this.prepareSteps]
     newBuilder.parseSteps = [...this.parseSteps]
     return newBuilder
   }
 
-  // Single-parameter parse method - THE KEY INNOVATION that eliminates overload resolution issues
+  // Parse method with proper overloads
   parse<TPayload extends SingleParamParsePayload<TContext>>(
     payload: TPayload
-  ): RouteBuilder<ParseResult<TContext, TPayload>> {
+  ): RouteBuilder<ParseResult<TContext, TPayload>, AccumulatePayloads<TAccumulatedPayloads, TPayload>> {
     // Store the parse step for later execution
     this.parseSteps.push({
       payload,
@@ -252,7 +252,7 @@ export class RouteBuilder<TContext = EmptyContext> {
     })
 
     // Create new builder with merged parsed context
-    const newBuilder = new RouteBuilder<ParseResult<TContext, TPayload>>(this.routeOptions)
+    const newBuilder = new RouteBuilder<ParseResult<TContext, TPayload>, AccumulatePayloads<TAccumulatedPayloads, TPayload>>(this.routeOptions)
     newBuilder.prepareSteps = [...this.prepareSteps]
     newBuilder.parseSteps = [...this.parseSteps]
 
@@ -261,7 +261,7 @@ export class RouteBuilder<TContext = EmptyContext> {
 
   handle<TResponse>(
     handlerFn: (req: Request, ctx: TContext) => Promise<TResponse>
-  ): EnhancedRouteHandler<TContext, TResponse> {
+  ): EnhancedRouteHandler<TContext, TResponse, TAccumulatedPayloads> {
     const { onRequest, onResponse, onError, requestObject } = this.routeOptions
     const prepareSteps = this.prepareSteps
     const parseSteps = this.parseSteps
@@ -452,25 +452,57 @@ export class RouteBuilder<TContext = EmptyContext> {
       }
     }
 
-    routeHandler.inferRouteType = {} as RouteTypeInfo<TContext, TResponse>
-    return routeHandler as EnhancedRouteHandler<TContext, TResponse>
+    routeHandler.inferRouteType = {} as RouteTypeInfo<TContext, TResponse, TAccumulatedPayloads>
+    return routeHandler as EnhancedRouteHandler<TContext, TResponse, TAccumulatedPayloads>
   }
 }
 
-// Enhanced route handler interface
-interface EnhancedRouteHandler<TContext, TResponse> {
-  (...args: unknown[]): Promise<TResponse>
-  invoke(contextOverride?: Partial<TContext>): Promise<TResponse>
-  inferRouteType: RouteTypeInfo<TContext, TResponse>
+// Enhanced createRoute with single-parameter approach
+export const createRoute = (routeOptions: RouteOptions = {}) => {
+  return new RouteBuilder<EmptyContext, {}>(routeOptions)
 }
 
-// Route type extraction interface (simplified)
-type RouteTypeInfo<TContext, TResponse> = {
-  path: string
-  method: string
+// Enhanced route handler interface
+interface EnhancedRouteHandler<TContext, TResponse, TAccumulatedPayloads = {}> {
+  (...args: unknown[]): Promise<TResponse>
+  invoke(contextOverride?: Partial<TContext>): Promise<TResponse>
+  inferRouteType: RouteTypeInfo<TContext, TResponse, TAccumulatedPayloads>
+}
+
+// Path parameter extraction helper
+type ExtractPathParams<T extends string> = 
+  T extends `${infer Start}/[${infer Param}]${infer Rest}`
+    ? { [K in Param]: string } & ExtractPathParams<`${Start}${Rest}`>
+    : T extends `${infer Start}/[${infer Param}]`
+    ? { [K in Param]: string }
+    : {}
+
+// Enhanced route type extraction with automatic literal type inference
+type RouteTypeInfo<TContext, TResponse, TAccumulatedPayloads = {}> = {
+  path: TAccumulatedPayloads extends { path: infer P } 
+    ? P extends string 
+      ? P extends `${string}[${string}]${string}` 
+        ? P  // Keep literal for parameterized paths
+        : P  // Keep literal for simple paths
+      : string
+    : string
+  pathParams: TAccumulatedPayloads extends { path: infer P } 
+    ? P extends string 
+      ? P extends `${string}[${string}]${string}`
+        ? ExtractPathParams<P> 
+        : {}
+      : never
+    : {}
+  method: TAccumulatedPayloads extends { method: infer M }
+    ? M extends readonly RouteMethod[] 
+      ? M[number]
+      : M extends RouteMethod
+        ? M
+        : string
+    : string
   input: {
-    body: unknown
-    query: unknown
+    body: TAccumulatedPayloads extends { body: (ctx: any) => Promise<infer B> } ? B : undefined
+    query: TAccumulatedPayloads extends { query: (ctx: any) => Promise<infer Q> } ? Q : undefined
   }
   returnValue: TResponse
 } 
