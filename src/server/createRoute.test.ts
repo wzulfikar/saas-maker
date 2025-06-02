@@ -1134,29 +1134,36 @@ describe("Stage 5: Parse Method Foundation", () => {
   describe("Integration with Prepare", () => {
     test("parse steps have access to prepare context", async () => {
       const route = createRoute()
-        .prepare(async (req, ctx) => {
-          return { userId: '123' }
-        })
+        .prepare(async (req) => ({ 
+          prepared: true,
+          timestamp: Date.now()
+        }))
         .parse({
-          body: async (body, ctx) => {
-            // Should have access to prepare context
-            expect(ctx.userId).toBe('123')
-            const parsed = body as { message: string }
-            return { message: data.message }
+          custom: async (req, ctx) => {
+            // Context should include prepare results
+            expect(ctx).toEqual({
+              prepared: true,
+              timestamp: expect.any(Number)
+            })
+            return "parsed"
           }
         })
         .handle(async (req, ctx) => {
-          expect(ctx.userId).toBe('123')
-          expect(ctx.parsed.body.message).toBe('hello from user 123')
-          return { success: true }
+          return {
+            prepared: ctx.prepared,
+            timestamp: ctx.timestamp,
+            custom: ctx.parsed.custom
+          }
         })
 
-      const mockRequest = new Request('http://localhost/test', {
-        method: 'POST',
-        body: JSON.stringify({ message: 'hello' })
-      })
+      const mockRequest = new Request('http://localhost/test')
       const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+
+      expect(result).toEqual({
+        prepared: true,
+        timestamp: expect.any(Number),
+        custom: "parsed"
+      })
     })
   })
 })
@@ -1781,24 +1788,16 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
 
 describe("Stage 8: Request Lifecycle Integration", () => {
   describe("Enhanced Lifecycle Hooks", () => {
-    test("lifecycle hooks receive metadata with timestamp and requestId", async () => {
-      const hookCalls: Array<{ hook: string, metadata: any }> = []
+    test("simplified lifecycle hooks work without metadata", async () => {
+      const hookCalls: string[] = []
       
       const route = createRoute({
-        onRequest: async (req, metadata) => {
-          hookCalls.push({ hook: 'onRequest', metadata })
-          expect(typeof metadata.timestamp).toBe('number')
-          expect(typeof metadata.requestId).toBe('string')
-          expect(metadata.requestId).toMatch(/^req-[a-z0-9]+$/)
+        onRequest: async (req) => {
+          hookCalls.push('onRequest')
         },
-        onResponse: async (res, metadata) => {
-          hookCalls.push({ hook: 'onResponse', metadata })
-          expect(typeof metadata.timestamp).toBe('number')
-          expect(typeof metadata.requestId).toBe('string')
-          expect(typeof metadata.duration).toBe('number')
-          expect(metadata.duration).toBeGreaterThanOrEqual(0)
-        },
-        generateRequestId: () => 'test-request-123'
+        onResponse: async (res) => {
+          hookCalls.push('onResponse')
+        }
       }).handle(async (req, ctx) => {
         return { success: true }
       })
@@ -1807,17 +1806,15 @@ describe("Stage 8: Request Lifecycle Integration", () => {
       const result = await route(mockRequest)
       
       expect(result).toEqual({ success: true })
-      expect(hookCalls).toHaveLength(2)
-      expect(hookCalls[0].metadata.requestId).toBe('test-request-123')
-      expect(hookCalls[1].metadata.requestId).toBe('test-request-123')
+      expect(hookCalls).toEqual(['onRequest', 'onResponse'])
     })
 
-    test("onError hook receives stage information", async () => {
-      let errorMetadata: any = null
+    test("onError hook works without metadata", async () => {
+      let errorCaught = false
       
       const route = createRoute({
-        onError: async (err, metadata) => {
-          errorMetadata = metadata
+        onError: async (err) => {
+          errorCaught = true
         }
       })
         .prepare(async () => { throw new Error("Prepare stage error") })
@@ -1832,44 +1829,16 @@ describe("Stage 8: Request Lifecycle Integration", () => {
         expect(error instanceof RouteError).toBe(true)
       }
       
-      expect(errorMetadata).not.toBeNull()
-      expect(errorMetadata.stage).toBe('prepare')
-      expect(typeof errorMetadata.timestamp).toBe('number')
-      expect(typeof errorMetadata.requestId).toBe('string')
-    })
-
-    test("response headers include metadata", async () => {
-      let responseHeaders: Headers | null = null
-      
-      const route = createRoute({
-        onResponse: async (res, metadata) => {
-          responseHeaders = res.headers
-        },
-        generateRequestId: () => 'custom-id-456'
-      }).handle(async (req, ctx) => {
-        return { message: 'hello' }
-      })
-
-      const mockRequest = new Request('http://localhost/test')
-      await route(mockRequest)
-      
-      expect(responseHeaders).not.toBeNull()
-      expect(responseHeaders!.get('X-Request-ID')).toBe('custom-id-456')
-      expect(responseHeaders!.get('X-Duration')).not.toBeNull()
-      expect(Number.parseInt(responseHeaders!.get('X-Duration')!)).toBeGreaterThanOrEqual(0)
+      expect(errorCaught).toBe(true)
     })
   })
 
-  describe("Stage-Specific Lifecycle Hooks", () => {
-    test("prepare lifecycle hooks execute in correct order", async () => {
+  describe("Simplified Lifecycle", () => {
+    test("basic lifecycle hooks execute in correct order", async () => {
       const executionOrder: string[] = []
       
       const route = createRoute({
         onRequest: async () => { executionOrder.push('onRequest') },
-        onPrepareStart: async () => { executionOrder.push('onPrepareStart') },
-        onPrepareCompleted: async () => { executionOrder.push('onPrepareCompleted') },
-        onParseStart: async () => { executionOrder.push('onParseStart') },
-        onParseComplete: async () => { executionOrder.push('onParseComplete') },
         onResponse: async () => { executionOrder.push('onResponse') }
       })
         .prepare(async (req, ctx) => {
@@ -1895,94 +1864,30 @@ describe("Stage 8: Request Lifecycle Integration", () => {
       
       expect(executionOrder).toEqual([
         'onRequest',
-        'onPrepareStart',
         'prepare',
-        'onPrepareCompleted',
-        'onParseStart',
         'parse',
-        'onParseComplete',
         'handle',
         'onResponse'
       ])
     })
-
-    test("prepare hooks receive correct context", async () => {
-      let prepareStartContext: any = null
-      let prepareCompleteContext: any = null
-      
-      const route = createRoute({
-        onPrepareStart: async (req: Request) => {
-          prepareStartContext = 'no-context-yet'
-        },
-        onPrepareCompleted: async (req: any, context: any) => {
-          prepareCompleteContext = context
-        }
-      })
-        .prepare(async (req, ctx) => {
-          return { userId: '123', role: 'admin' }
-        })
-        .handle(async (req, ctx) => {
-          return { success: true }
-        })
-
-      const mockRequest = new Request('http://localhost/test')
-      await route(mockRequest)
-      
-      expect(prepareStartContext).toBe('no-context-yet')
-      expect(prepareCompleteContext).toEqual({ requestId: expect.any(String), userId: '123', role: 'admin' })
-    })
-
-    test("parse hooks receive prepare context", async () => {
-      let parseStartContext: any = null
-      let parseCompleteContext: any = null
-      
-      const route = createRoute({
-        onParseStart: async (req, context) => {
-          parseStartContext = context
-        },
-        onParseComplete: async (req, context) => {
-          parseCompleteContext = context
-        }
-      })
-        .prepare(async (req, ctx) => {
-          return { prepared: true }
-        })
-        .parse({
-          body: async (body, ctx) => {
-            return { name: 'test' }
-          }
-        })
-        .handle(async (req, ctx) => {
-          return { success: true }
-        })
-
-      const mockRequest = new Request('http://localhost/test', {
-        method: 'POST',
-        body: JSON.stringify({ name: 'test' })
-      })
-      await route(mockRequest)
-      
-      expect(parseStartContext).toEqual({ prepared: true })
-      expect(parseCompleteContext.prepared).toBe(true)
-      expect(parseCompleteContext.parsed).toEqual({ body: { name: 'test' } })
-    })
   })
 
   describe("Error Propagation Enhancement", () => {
-    test("errors in different stages are correctly identified", async () => {
-      const errorStages: string[] = []
+    test("errors in different stages are correctly handled", async () => {
+      let prepareErrorCaught = false
+      let parseErrorCaught = false
       
       const prepareErrorRoute = createRoute({
-        onError: async (err, metadata) => {
-          errorStages.push(metadata.stage)
+        onError: async (err) => {
+          prepareErrorCaught = true
         }
       })
         .prepare(async () => { throw new Error("Prepare error") })
         .handle(async () => ({ success: true }))
 
       const parseErrorRoute = createRoute({
-        onError: async (err, metadata) => {
-          errorStages.push(metadata.stage)
+        onError: async (err) => {
+          parseErrorCaught = true
         }
       })
         .parse({
@@ -1990,60 +1895,25 @@ describe("Stage 8: Request Lifecycle Integration", () => {
         })
         .handle(async () => ({ success: true }))
 
-      const handleErrorRoute = createRoute({
-        onError: async (err, metadata) => {
-          errorStages.push(metadata.stage)
-        }
-      }).handle(async () => { 
-        throw new Error("Handle error") 
-      })
-
       const mockRequest = new Request('http://localhost/test', {
         method: 'POST',
-        body: '{}'
+        body: JSON.stringify({})
       })
 
-      // Test prepare error
-      try { await prepareErrorRoute(mockRequest) } catch {}
-      
-      // Test parse error  
-      try { await parseErrorRoute(mockRequest) } catch {}
-      
-      // Test handle error
-      try { await handleErrorRoute(mockRequest) } catch {}
-      
-      expect(errorStages).toEqual(['prepare', 'parse', 'handle'])
-    })
-
-    test("RouteError preservation through error hooks", async () => {
-      let capturedError: Error | null = null
-      
-      const customRouteError = new RouteError("Custom validation error", {
-        errorCode: 'VALIDATION_ERROR',
-        errorMessage: 'Invalid input data',
-        httpStatus: 422
-      })
-
-      const route = createRoute({
-        onError: async (err, metadata) => {
-          capturedError = err
-        }
-      })
-        .prepare(async () => {
-          throw customRouteError
-        })
-        .handle(async () => ({ success: true }))
-
-      const mockRequest = new Request('http://localhost/test')
-      
       try {
-        await route(mockRequest)
-        expect(true).toBe(false) // Should not reach here
+        await prepareErrorRoute(mockRequest)
       } catch (error) {
-        expect(error).toBe(customRouteError)
+        expect(error instanceof RouteError).toBe(true)
+      }
+
+      try {
+        await parseErrorRoute(mockRequest)
+      } catch (error) {
+        expect(error instanceof RouteError).toBe(true)
       }
       
-      expect(capturedError).toBe(customRouteError)
+      expect(prepareErrorCaught).toBe(true)
+      expect(parseErrorCaught).toBe(true)
     })
   })
 
@@ -2501,7 +2371,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
   })
 
   describe("Framework Response Helpers", () => {
-    test("asResponse method creates proper Response objects", async () => {
+    test("route handler returns user response directly", async () => {
       const route = createRoute()
         .prepare(async (req) => ({ prepared: true }))
         .handle(async (req, ctx) => {
@@ -2512,25 +2382,57 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           }
         })
       
-      const responseHandler = route.asResponse(201, {
-        'X-Custom-Header': 'test-value'
-      })
-      
       const mockRequest = new Request('http://localhost/test')
-      const response = await responseHandler(mockRequest)
+      const result = await route(mockRequest)
       
-      expect(response).toBeInstanceOf(Response)
-      expect(response.status).toBe(201)
-      expect(response.headers.get('Content-Type')).toBe('application/json')
-      expect(response.headers.get('X-Custom-Header')).toBe('test-value')
-      
-      const body = await response.json()
-      expect(body.message).toBe('Hello World')
-      expect(body.prepared).toBe(true)
-      expect(body.requestId).toBeDefined()
+      // Should return JSON directly, not wrapped in Response
+      expect(result).toEqual({
+        message: 'Hello World',
+        requestId: expect.any(String),
+        prepared: true
+      })
     })
 
-    test("asResponse handles RouteError with proper status", async () => {
+    test("route handler preserves user Response objects", async () => {
+      const route = createRoute()
+        .handle(async (req, ctx) => {
+          // User returns Response directly for full control
+          return new Response(JSON.stringify({ custom: 'response' }), {
+            status: 201,
+            headers: { 
+              'Content-Type': 'application/json',
+              'X-Custom': 'user-controlled'
+            }
+          }) as unknown as { custom: string }
+        })
+      
+      const mockRequest = new Request('http://localhost/test')
+      const result = await route(mockRequest)
+      
+      // Should return the Response object as-is
+      expect(result).toBeInstanceOf(Response)
+    })
+
+    test("invoke method returns JSON as-is", async () => {
+      const route = createRoute()
+        .prepare(async (req) => ({ prepared: true }))
+        .handle(async (req, ctx) => {
+          return { 
+            message: 'Hello from invoke',
+            prepared: ctx.prepared
+          }
+        })
+      
+      const result = await route.invoke()
+      
+      // invoke should return the JSON directly
+      expect(result).toEqual({
+        message: 'Hello from invoke',
+        prepared: true
+      })
+    })
+
+    test("error handling throws RouteError for proper framework handling", async () => {
       const route = createRoute()
         .prepare(async (req) => {
           throw new RouteError("Preparation failed", {
@@ -2543,36 +2445,56 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           return { success: true }
         })
       
-      const responseHandler = route.asResponse()
       const mockRequest = new Request('http://localhost/error')
-      const response = await responseHandler(mockRequest)
       
-      expect(response.status).toBe(422)
-      expect(response.headers.get('Content-Type')).toBe('application/json')
-      
-      const body = await response.json()
-      expect(body).toEqual({
-        error: 'PREP_ERROR',
-        message: 'Something went wrong during preparation'
+      await expect(route(mockRequest)).rejects.toThrow(RouteError)
+      await expect(route(mockRequest)).rejects.toMatchObject({
+        errorCode: 'PREP_ERROR',
+        httpStatus: 422
       })
     })
 
-    test("asResponse handles unexpected errors with 500 status", async () => {
+    test("error handling throws for unexpected errors", async () => {
       const route = createRoute()
         .handle(async (req, ctx) => {
           throw new Error("Unexpected error")
         })
       
-      const responseHandler = route.asResponse()
       const mockRequest = new Request('http://localhost/unexpected')
-      const response = await responseHandler(mockRequest)
       
-      expect(response.status).toBe(500)
-      const body = await response.json()
-      expect(body).toEqual({
-        error: 'INTERNAL_SERVER_ERROR',
-        message: 'An unexpected error occurred'
+      await expect(route(mockRequest)).rejects.toThrow("Unexpected error")
+    })
+
+    test("custom errorHandler can return custom response", async () => {
+      let capturedError: RouteError | null = null
+      
+      const route = createRoute({
+        errorHandler: async (error, metadata) => {
+          capturedError = error
+          return new Response(JSON.stringify({
+            custom: 'error-handling',
+            code: error.errorCode
+          }), { status: error.httpStatus })
+        }
       })
+        .prepare(async (req) => {
+          throw new RouteError("Custom error", {
+            errorCode: 'CUSTOM_ERROR',
+            errorMessage: 'This is a custom error',
+            httpStatus: 418
+          })
+        })
+        .handle(async (req, ctx) => {
+          return { success: true }
+        })
+      
+      const mockRequest = new Request('http://localhost/error')
+      const result = await route(mockRequest)
+      
+      // errorHandler returned a Response, so we get it back (with type assertion)
+      expect(result).toBeInstanceOf(Response)
+      expect(capturedError).toBeInstanceOf(RouteError)
+      expect(capturedError?.errorCode).toBe('CUSTOM_ERROR')
     })
   })
 
@@ -2818,6 +2740,205 @@ describe("Stage 9: Framework Integration & Invoke", () => {
         body: { validated: true, data: { name: 'Express User' } },
         requestId: expect.any(String)
       })
+    })
+  })
+})
+
+describe("Stage 10: Route Type Extraction", () => {
+  describe("Route Type Extraction", () => {
+    test("inferRouteType extracts basic route information", () => {
+      const route = createRoute()
+        .parse({
+          method: 'POST',
+          path: '/api/users'
+        })
+        .handle(async (req, ctx) => {
+          return { 
+            success: true,
+            message: 'User created'
+          }
+        })
+
+      // Type-level test - this validates TypeScript compilation
+      type RouteType = typeof route.inferRouteType
+      
+      // These type assertions validate the extracted types
+      const typeTest: RouteType = {
+        path: '/api/users' as const,
+        method: 'POST' as const,
+        input: { body: undefined, query: undefined },
+        returnValue: { success: true, message: 'User created' }
+      }
+
+      // Runtime validation that the property exists
+      expect(route.inferRouteType).toBeDefined()
+      expect(typeof route.inferRouteType).toBe('object')
+    })
+
+    test("inferRouteType extracts input types from body and query", () => {
+      const route = createRoute()
+        .parse({
+          body: async (body: unknown) => {
+            const data = body as { name: string, email: string }
+            return { name: data.name, email: data.email }
+          },
+          query: async (query: Record<string, string>) => {
+            return { 
+              page: Number.parseInt(query.page || '1'),
+              limit: Number.parseInt(query.limit || '10')
+            }
+          },
+          method: 'POST'
+        })
+        .handle(async (req, ctx) => {
+          return {
+            user: ctx.parsed.body,
+            pagination: ctx.parsed.query
+          }
+        })
+
+      type RouteType = typeof route.inferRouteType
+      
+      // Validate that input types are properly extracted
+      const typeTest: RouteType = {
+        path: 'any-string' as string,
+        method: 'POST' as const,
+        input: { 
+          body: { name: 'test', email: 'test@example.com' },
+          query: { page: 1, limit: 10 }
+        },
+        returnValue: {
+          user: { name: 'test', email: 'test@example.com' },
+          pagination: { page: 1, limit: 10 }
+        }
+      }
+
+      expect(route.inferRouteType).toBeDefined()
+    })
+
+    test("inferRouteType handles routes without parse fields", () => {
+      const route = createRoute()
+        .prepare(async (req) => ({ timestamp: Date.now() }))
+        .handle(async (req, ctx) => {
+          return { 
+            message: 'Simple route',
+            timestamp: ctx.timestamp 
+          }
+        })
+
+      type RouteType = typeof route.inferRouteType
+      
+      // When no parse fields are defined, defaults should apply
+      const typeTest: RouteType = {
+        path: 'any-string' as string,
+        method: 'any-method' as string,
+        input: { body: undefined, query: undefined },
+        returnValue: { message: 'Simple route', timestamp: 12345 }
+      }
+
+      expect(route.inferRouteType).toBeDefined()
+    })
+
+    test("inferRouteType works with complex nested types", () => {
+      const route = createRoute()
+        .parse({
+          body: async (body: unknown) => {
+            const data = body as { 
+              user: { name: string, profile: { age: number } },
+              preferences: string[]
+            }
+            return data
+          },
+          query: async (query: Record<string, string>) => {
+            return {
+              include: query.include?.split(',') || [],
+              sort: query.sort || 'name'
+            }
+          },
+          method: ['GET', 'POST'] as const,
+          path: '/api/users/:id'
+        })
+        .handle(async (req, ctx) => {
+          return {
+            data: ctx.parsed.body,
+            meta: {
+              query: ctx.parsed.query,
+              method: ctx.parsed.method,
+              path: ctx.parsed.path
+            }
+          }
+        })
+
+      type RouteType = typeof route.inferRouteType
+      
+      // Validate complex nested type extraction
+      const typeTest: RouteType['input'] = {
+        body: {
+          user: { name: 'John', profile: { age: 30 } },
+          preferences: ['dark-mode', 'notifications']
+        },
+        query: {
+          include: ['profile', 'preferences'],
+          sort: 'name'
+        }
+      }
+
+      expect(route.inferRouteType).toBeDefined()
+    })
+
+    test("inferRouteType enables type-safe client generation patterns", () => {
+      // This demonstrates how the extracted types could be used for client generation
+      const userCreateRoute = createRoute()
+        .parse({
+          body: async (body: unknown) => {
+            const data = body as { name: string, email: string, age?: number }
+            return data
+          },
+          method: 'POST',
+          path: '/api/users'
+        })
+        .handle(async (req, ctx) => {
+          return {
+            id: 'user-123',
+            ...ctx.parsed.body,
+            createdAt: new Date().toISOString()
+          }
+        })
+
+      const userListRoute = createRoute()
+        .parse({
+          query: async (query: Record<string, string>) => {
+            return {
+              page: Number.parseInt(query.page || '1'),
+              search: query.search || ''
+            }
+          },
+          method: 'GET',
+          path: '/api/users'
+        })
+        .handle(async (req, ctx) => {
+          return {
+            users: [{ id: 'user-123', name: 'John', email: 'john@example.com' }],
+            pagination: { page: ctx.parsed.query.page, total: 1 }
+          }
+        })
+
+      // Extract types for client generation
+      type CreateUserRoute = typeof userCreateRoute.inferRouteType
+      type ListUsersRoute = typeof userListRoute.inferRouteType
+
+      // These would be the types available for client-side usage
+      type CreateUserInput = CreateUserRoute['input']['body']
+      type CreateUserResponse = CreateUserRoute['returnValue']
+      type ListUsersQuery = ListUsersRoute['input']['query']
+      type ListUsersResponse = ListUsersRoute['returnValue']
+
+      // Type validation
+      const createInput: CreateUserInput = { name: 'John', email: 'john@example.com', age: 30 }
+      const listQuery: ListUsersQuery = { page: 1, search: 'john' }
+
+      expect(userCreateRoute.inferRouteType).toBeDefined()
+      expect(userListRoute.inferRouteType).toBeDefined()
     })
   })
 })

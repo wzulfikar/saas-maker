@@ -95,18 +95,10 @@ const FrameworkAdapters = {
 
 // Enhanced route options with minimal framework integration
 type RouteOptions = {
-  onRequest?: (req: Request, metadata: { timestamp: number, requestId: string }) => Promise<void>
-  onResponse?: (res: Response, metadata: { timestamp: number, requestId: string, duration: number }) => Promise<void>
-  onError?: (err: Error, metadata: { timestamp: number, requestId: string, stage: 'prepare' | 'parse' | 'handle' }) => Promise<void>
+  onRequest?: (req: Request) => Promise<void>
+  onResponse?: (res: Response) => Promise<void>
+  onError?: (err: Error) => Promise<void>
   requestObject?: (args: unknown) => Request
-  // Stage 8 options - renamed onPrepareComplete to onPrepareCompleted
-  onPrepareStart?: (req: Request) => Promise<void>
-  onPrepareCompleted?: (req: Request, context: Record<string, unknown>) => Promise<void>
-  onParseStart?: (req: Request, context: Record<string, unknown>) => Promise<void>
-  onParseComplete?: (req: Request, context: Record<string, unknown>) => Promise<void>
-  generateRequestId?: () => string
-  // Stage 9 additions
-  errorHandler?: (error: RouteError, metadata: { timestamp: number, requestId: string, stage: string }) => Promise<Response | undefined>
 }
 
 // Context types for progressive building
@@ -138,15 +130,44 @@ type ExtractParsed<T> = T extends { parsed: infer P } ? P : Record<string, never
 // Helper type to extract non-parsed context
 type ExtractNonParsed<T> = Omit<T, 'parsed'>
 
+// Type utilities for route type extraction
+type ExtractPathType<TContext> = TContext extends { parsed: { path: infer P } } 
+  ? P extends { matched: infer M } 
+    ? M 
+    : string
+  : string
+
+type ExtractMethodType<TContext> = TContext extends { parsed: { method: infer M } } 
+  ? M 
+  : string
+
+type ExtractInputType<TContext> = TContext extends { parsed: infer P }
+  ? {
+      body: P extends { body: infer B } ? B : undefined
+      query: P extends { query: infer Q } ? Q : undefined
+    }
+  : {
+      body: undefined
+      query: undefined
+    }
+
+// Route type extraction interface
+type RouteTypeInfo<TContext, TResponse> = {
+  path: ExtractPathType<TContext>
+  method: ExtractMethodType<TContext>
+  input: ExtractInputType<TContext>
+  returnValue: TResponse
+}
+
 // HTTP methods supported
 type RouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "OPTIONS" | "HEAD"
 
 // Enhanced createRoute with framework integration
 export const createRoute = (routeOptions: RouteOptions = {}) => {
-  return new RouteBuilder<ContextWithRequestId>(routeOptions)
+  return new RouteBuilder<EmptyContext>(routeOptions)
 }
 
-export class RouteBuilder<TContext = ContextWithRequestId> {
+export class RouteBuilder<TContext = EmptyContext> {
   private prepareSteps: Array<(req: Request, ctx: unknown) => Promise<unknown>> = []
   private parseSteps: Array<{
     payload: unknown
@@ -241,13 +262,19 @@ export class RouteBuilder<TContext = ContextWithRequestId> {
 
           if (predefinedPayload.body) {
             try {
-              // Parse request body
-              const bodyText = await req.text()
+              // For body parsing with type merging: use previous result if available, otherwise parse from request
               let bodyData: unknown
-              try {
-                bodyData = JSON.parse(bodyText)
-              } catch {
-                bodyData = bodyText // Fallback to text if not JSON
+              if (parsedResults.body !== undefined) {
+                // Use previously parsed body result for type merging
+                bodyData = parsedResults.body
+              } else {
+                // First time parsing body - read from request
+                const bodyText = await req.text()
+                try {
+                  bodyData = JSON.parse(bodyText)
+                } catch {
+                  bodyData = bodyText // Fallback to text if not JSON
+                }
               }
               const result = await predefinedPayload.body(bodyData, ctx as TContext)
               parsedResults.body = result
@@ -263,10 +290,17 @@ export class RouteBuilder<TContext = ContextWithRequestId> {
 
           if (predefinedPayload.query) {
             try {
-              // Parse URL query parameters
-              const url = new URL(req.url)
-              const queryParams = Object.fromEntries(url.searchParams.entries())
-              const result = await predefinedPayload.query(queryParams, ctx as TContext)
+              // For query parsing with type merging: use previous result if available, otherwise parse from request
+              let queryData: Record<string, string>
+              if (parsedResults.query !== undefined) {
+                // Use previously parsed query result for type merging
+                queryData = parsedResults.query as Record<string, string>
+              } else {
+                // First time parsing query - read from request URL
+                const url = new URL(req.url)
+                queryData = Object.fromEntries(url.searchParams.entries())
+              }
+              const result = await predefinedPayload.query(queryData, ctx as TContext)
               parsedResults.query = result
             } catch (error) {
               throw new RouteError("Bad Request: Error parsing `query`", {
@@ -416,17 +450,13 @@ export class RouteBuilder<TContext = ContextWithRequestId> {
   handle<TResponse>(
     handlerFn: (req: Request, ctx: TContext) => Promise<TResponse>
   ): EnhancedRouteHandler<TContext, TResponse> {
-    const { onRequest, onResponse, onError, requestObject, onPrepareStart, onPrepareCompleted, onParseStart, onParseComplete, generateRequestId, errorHandler } = this.routeOptions
+    const { onRequest, onResponse, onError, requestObject } = this.routeOptions
     const prepareSteps = this.prepareSteps
     const parseSteps = this.parseSteps
 
     // Enhanced route handler with framework integration
     async function routeHandler(...args: unknown[]): Promise<TResponse> {
       try {
-        // Enhanced metadata tracking for Stage 9
-        const startTime = Date.now()
-        const requestId = generateRequestId?.() || `req-${Math.random().toString(36).substring(2)}`
-        
         // Enhanced request object extraction with framework support
         let request: Request
         try {
@@ -443,17 +473,12 @@ export class RouteBuilder<TContext = ContextWithRequestId> {
         
         // Call onRequest hook if provided
         if (onRequest) {
-          await onRequest(request, { timestamp: startTime, requestId })
-        }
-
-        // Call onPrepareStart hook
-        if (onPrepareStart) {
-          await onPrepareStart(request)
+          await onRequest(request)
         }
 
         // Build context by executing prepare steps
         // Start with requestId in context
-        let context: Record<string, unknown> = { requestId }
+        let context: Record<string, unknown> = {}
         
         for (const prepareStep of prepareSteps) {
           try {
@@ -465,7 +490,7 @@ export class RouteBuilder<TContext = ContextWithRequestId> {
           } catch (error) {
             // Enhanced error handling with metadata
             if (onError) {
-              await onError(error as Error, { timestamp: Date.now(), requestId, stage: 'prepare' })
+              await onError(error as Error)
             }
             
             // Wrap prepare errors in RouteError
@@ -480,16 +505,6 @@ export class RouteBuilder<TContext = ContextWithRequestId> {
               cause: error as Error
             })
           }
-        }
-
-        // Call onPrepareCompleted hook (renamed from onPrepareComplete)
-        if (onPrepareCompleted) {
-          await onPrepareCompleted(request, context)
-        }
-
-        // Call onParseStart hook
-        if (onParseStart) {
-          await onParseStart(request, context)
         }
 
         // Execute parse steps with progressive type narrowing
@@ -521,7 +536,7 @@ export class RouteBuilder<TContext = ContextWithRequestId> {
           } catch (error) {
             // Enhanced error handling with metadata
             if (onError) {
-              await onError(error as Error, { timestamp: Date.now(), requestId, stage: 'parse' })
+              await onError(error as Error)
             }
             
             // Wrap parse errors in RouteError
@@ -538,49 +553,32 @@ export class RouteBuilder<TContext = ContextWithRequestId> {
           }
         }
 
-        // Call onParseComplete hook
-        if (onParseComplete) {
-          await onParseComplete(request, context)
-        }
-
         // Call the actual handler with built context
         const response = await handlerFn(request, context as TContext)
 
-        // Enhanced response handling for Stage 9
-        const endTime = Date.now()
-        const duration = endTime - startTime
-
-        // Call onResponse hook if provided (need to create Response object)
+        // Call onResponse hook if provided (create Response object for the hook if needed)
         if (onResponse) {
-          // Create a mock Response for the hook with metadata
-          const mockResponse = new Response(JSON.stringify(response), {
-            status: 200,
-            headers: { 
-              'Content-Type': 'application/json',
-              'X-Request-ID': requestId,
-              'X-Duration': duration.toString()
-            }
-          })
-          await onResponse(mockResponse, { timestamp: endTime, requestId, duration })
+          let responseForHook: Response
+          if (response instanceof Response) {
+            responseForHook = response
+          } else {
+            // Create a temporary Response for the hook, but still return the original response
+            responseForHook = new Response(JSON.stringify(response), {
+              status: 200,
+              headers: { 
+                'Content-Type': 'application/json'
+              }
+            })
+          }
+          await onResponse(responseForHook)
         }
 
+        // Return exactly what the user returned - maintain backward compatibility
         return response
       } catch (error) {
-        // Enhanced error handling with framework integration
-        const errorTime = Date.now()
-        const requestId = generateRequestId?.() || `req-${Math.random().toString(36).substring(2)}`
-        
         // Handle errors through the error hook
         if (onError) {
-          await onError(error as Error, { timestamp: errorTime, requestId, stage: 'handle' })
-        }
-
-        // Framework-specific error handling
-        if (errorHandler && error instanceof RouteError) {
-          const errorResponse = await errorHandler(error, { timestamp: errorTime, requestId, stage: 'handle' })
-          if (errorResponse) {
-            return errorResponse as TResponse
-          }
+          await onError(error as Error)
         }
         
         // Re-throw the error so it can be handled by the framework
@@ -591,27 +589,17 @@ export class RouteBuilder<TContext = ContextWithRequestId> {
     // Enhanced invoke method with better context typing
     routeHandler.invoke = async (contextOverride?: Partial<TContext>): Promise<TResponse> => {
       try {
-        // Enhanced metadata tracking for Stage 9
-        const startTime = Date.now()
-        const requestId = generateRequestId?.() || `req-${Math.random().toString(36).substring(2)}`
-        
         // Create a mock request for invoke
         const mockRequest = new Request('http://localhost/invoke')
         
         if (contextOverride) {
-          // Merge provided context with requestId
-          const fullContext = { requestId, ...contextOverride } as TContext
+          // Merge provided context override
+          const fullContext = { ...contextOverride } as TContext
           return await handlerFn(mockRequest, fullContext)
         }
         
-        // Call onPrepareStart hook for invoke
-        if (onPrepareStart) {
-          await onPrepareStart(mockRequest)
-        }
-        
-        // Execute prepare steps to build context
-        // Start with requestId in context
-        let context: Record<string, unknown> = { requestId }
+        // Build context by executing prepare steps
+        let context: Record<string, unknown> = {}
         
         for (const prepareStep of prepareSteps) {
           try {
@@ -622,7 +610,7 @@ export class RouteBuilder<TContext = ContextWithRequestId> {
           } catch (error) {
             // Enhanced error handling with metadata for invoke
             if (onError) {
-              await onError(error as Error, { timestamp: Date.now(), requestId, stage: 'prepare' })
+              await onError(error as Error)
             }
             
             if (error instanceof RouteError) {
@@ -636,16 +624,6 @@ export class RouteBuilder<TContext = ContextWithRequestId> {
               cause: error as Error
             })
           }
-        }
-
-        // Call onPrepareCompleted hook for invoke (renamed)
-        if (onPrepareCompleted) {
-          await onPrepareCompleted(mockRequest, context)
-        }
-
-        // Call onParseStart hook for invoke
-        if (onParseStart) {
-          await onParseStart(mockRequest, context)
         }
 
         // Execute parse steps with progressive type narrowing
@@ -675,9 +653,9 @@ export class RouteBuilder<TContext = ContextWithRequestId> {
               }
             }
           } catch (error) {
-            // Enhanced error handling with metadata for invoke
+            // Enhanced error handling for invoke
             if (onError) {
-              await onError(error as Error, { timestamp: Date.now(), requestId, stage: 'parse' })
+              await onError(error as Error)
             }
             
             if (error instanceof RouteError) {
@@ -692,22 +670,13 @@ export class RouteBuilder<TContext = ContextWithRequestId> {
             })
           }
         }
-
-        // Call onParseComplete hook for invoke
-        if (onParseComplete) {
-          await onParseComplete(mockRequest, context)
-        }
         
         // Call handler with built context (note: onRequest/onResponse hooks are skipped for invoke)
         return await handlerFn(mockRequest, context as TContext)
       } catch (error) {
-        // Enhanced error handling with metadata for invoke
-        const errorTime = Date.now()
-        const requestId = generateRequestId?.() || `req-${Math.random().toString(36).substring(2)}`
-        
         // Handle errors through the error hook for invoke
         if (onError) {
-          await onError(error as Error, { timestamp: errorTime, requestId, stage: 'handle' })
+          await onError(error as Error)
         }
         
         // Wrap non-RouteError errors
@@ -724,39 +693,8 @@ export class RouteBuilder<TContext = ContextWithRequestId> {
       }
     }
 
-    // Add framework-specific response helpers
-    routeHandler.asResponse = (status = 200, headers?: Record<string, string>) => {
-      return async (...args: unknown[]): Promise<Response> => {
-        try {
-          const result = await routeHandler(...args)
-          return new Response(JSON.stringify(result), {
-            status,
-            headers: {
-              'Content-Type': 'application/json',
-              ...headers
-            }
-          })
-        } catch (error) {
-          if (error instanceof RouteError) {
-            return new Response(JSON.stringify({
-              error: error.errorCode,
-              message: error.errorMessage
-            }), {
-              status: error.httpStatus,
-              headers: { 'Content-Type': 'application/json' }
-            })
-          }
-          
-          return new Response(JSON.stringify({
-            error: 'INTERNAL_SERVER_ERROR',
-            message: 'An unexpected error occurred'
-          }), {
-            status: 500,
-            headers: { 'Content-Type': 'application/json' }
-          })
-        }
-      }
-    }
+    // Add type extraction property (runtime never used, only for TypeScript)
+    routeHandler.inferRouteType = {} as RouteTypeInfo<TContext, TResponse>
 
     return routeHandler as EnhancedRouteHandler<TContext, TResponse>
   }
@@ -766,5 +704,5 @@ export class RouteBuilder<TContext = ContextWithRequestId> {
 interface EnhancedRouteHandler<TContext, TResponse> {
   (...args: unknown[]): Promise<TResponse>
   invoke(contextOverride?: Partial<TContext>): Promise<TResponse>
-  asResponse(status?: number, headers?: Record<string, string>): (...args: unknown[]) => Promise<Response>
+  inferRouteType: RouteTypeInfo<TContext, TResponse>
 }
