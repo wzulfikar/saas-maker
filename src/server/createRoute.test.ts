@@ -1027,50 +1027,6 @@ describe("Stage 5: Parse Method Foundation", () => {
     })
   })
 
-  // describe("Custom Field Parsing", () => {
-  //   test("parse custom field", async () => {
-  //     const route = createRoute()
-  //       .parse({
-  //         customField: async (ctx) => {
-  //           const url = new URL(req.url)
-  //           return { host: url.hostname }
-  //         }
-  //       })
-  //       .handle(async (req, ctx) => {
-  //         expect(ctx.parsed.customField).toEqual({ host: 'localhost' })
-  //         return { success: true }
-  //       })
-
-  //     const mockRequest = new Request('http://localhost/test')
-  //     const result = await route(mockRequest)
-  //     expect(result).toEqual({ success: true })
-  //   })
-
-  //   test("parse multiple custom fields", async () => {
-  //     const route = createRoute()
-  //       .parse({
-  //         timestamp: async (ctx) => {
-  //           return { value: Date.now() }
-  //         },
-  //         requestId: async (ctx) => {
-  //           return { id: Math.random().toString(36) }
-  //         }
-  //       })
-  //       .handle(async (req, ctx) => {
-  //         type TestTypeOfTimestamp = Expect<Eq<typeof ctx.parsed.timestamp, { value: number }>>
-  //         type TestTypeOfRequestId = Expect<Eq<typeof ctx.parsed.requestId, { id: string }>>
-
-  //         expect(typeof ctx.parsed.timestamp.value).toBe('number')
-  //         expect(typeof ctx.parsed.requestId.id).toBe('string')
-  //         return { success: true }
-  //       })
-
-  //     const mockRequest = new Request('http://localhost/test')
-  //     const result = await route(mockRequest)
-  //     expect(result).toEqual({ success: true })
-  //   })
-  // })
-
   describe("Mixed Parsing", () => {
     test("parse predefined and custom fields together", async () => {
       const route = createRoute()
@@ -1252,12 +1208,6 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
             const userAgent = ctx.headers.get('user-agent')
             return { userAgent: userAgent || 'unknown' }
           },
-          // Custom field with Request access
-          // requestInfo: async (ctx) => {
-          //   // req should be typed as Request
-          //   expect(req instanceof Request).toBe(true)
-          //   return { method: req.method, url: req.url }
-          // }
         })
         .handle(async (req, ctx) => {
           expect(ctx.parsed.headers.userAgent).toBe('test-browser')
@@ -1591,69 +1541,6 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
     })
   })
 
-  describe("Progressive Type Refinement", () => {
-    // test("multiple parse calls progressively build types", async () => {
-    //   const route = createRoute()
-    //     .parse({
-    //       body: async (ctx) => {
-    //         const data = ctx.body as { name: string }
-    //         return { name: data.name }
-    //       }
-    //     })
-    //     .parse({
-    //       auth: async (ctx) => {
-    //         return { userId: '123' }
-    //       }
-    //     })
-    //     .parse({
-    //       body: async (ctx) => {
-    //         // Additional validation on body
-    //         const data = ctx.body as { name: string, email: string }
-    //         return { email: data.email, validated: true }
-    //       }
-    //     })
-    //     .handle(async (req, ctx) => {
-    //       // Should have: body: { name, email, validated }, auth: { userId }
-    //       expect(ctx.parsed.body.name).toBe('John')
-    //       expect(ctx.parsed.body.email).toBe('john@example.com')
-    //       expect(ctx.parsed.body.validated).toBe(true)
-    //       expect(ctx.parsed.auth.userId).toBe('123')
-    //       return { allValidated: true }
-    //     })
-
-    //   const mockRequest = new Request('http://localhost/test', {
-    //     method: 'POST',
-    //     body: JSON.stringify({ name: 'John', email: 'john@example.com' }),
-    //     headers: { 'authorization': 'Bearer token123' }
-    //   })
-    //   const result = await route(mockRequest)
-    //   expect(result).toEqual({ allValidated: true })
-    // })
-
-    // test("type narrowing works with custom fields", async () => {
-    //   const route = createRoute()
-    //     .parse({
-    //       customValidator: async (ctx) => {
-    //         return { step1: 'validated' }
-    //       }
-    //     })
-    //     .parse({
-    //       customValidator: async (ctx) => {
-    //         return { step2: 'also-validated' }
-    //       }
-    //     })
-    //     .handle(async (req, ctx) => {
-    //       expect(ctx.parsed.customValidator.step1).toBe('validated')
-    //       expect(ctx.parsed.customValidator.step2).toBe('also-validated')
-    //       return { success: true }
-    //     })
-
-    //   const mockRequest = new Request('http://localhost/test')
-    //   const result = await route(mockRequest)
-    //   expect(result).toEqual({ success: true })
-    // })
-  })
-
   describe("Context Access in Later Parse Calls", () => {
     test("later parse calls have access to prepare context", async () => {
       const route = createRoute()
@@ -1688,43 +1575,6 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
       const result = await route(mockRequest)
       expect(result).toEqual({ success: true })
     })
-
-    // test("parse calls executed in order with cumulative context", async () => {
-    //   const executionOrder: string[] = []
-
-    //   const route = createRoute()
-    //     .parse({
-    //       step1: async (ctx) => {
-    //         executionOrder.push('parse-step1')
-    //         return { value: 'first' }
-    //       }
-    //     })
-    //     .parse({
-    //       step2: async (ctx) => {
-    //         executionOrder.push('parse-step2')
-    //         // Note: ctx doesn't have parsed results from same execution cycle
-    //         return { value: 'second' }
-    //       }
-    //     })
-    //     .parse({
-    //       step3: async (ctx) => {
-    //         executionOrder.push('parse-step3')
-    //         return { value: 'third' }
-    //       }
-    //     })
-    //     .handle(async (req, ctx) => {
-    //       executionOrder.push('handle')
-    //       expect(ctx.parsed.step1.value).toBe('first')
-    //       expect(ctx.parsed.step2.value).toBe('second')
-    //       expect(ctx.parsed.step3.value).toBe('third')
-    //       return { executionOrder }
-    //     })
-
-    //   const mockRequest = new Request('http://localhost/test')
-    //   const result = await route(mockRequest)
-
-    //   expect(result.executionOrder).toEqual(['parse-step1', 'parse-step2', 'parse-step3', 'handle'])
-    // })
   })
 
   describe("Complex Type Narrowing Scenarios", () => {
@@ -1798,23 +1648,15 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
           body: async (ctx) => {
             return { step1: 'body-parsed' }
           },
-          // customField: async (ctx) => {
-          //   return { step1: 'custom-parsed' }
-          // }
         })
         .parse({
           body: async (ctx) => {
             return { ...ctx.parsed.body, step2: 'body-enhanced' }
           },
-          // customField: async (ctx) => {
-          //   return { step2: 'custom-enhanced' }
-          // }
         })
         .handle(async (req, ctx) => {
           expect(ctx.parsed.body.step1).toBe('body-parsed')
           expect(ctx.parsed.body.step2).toBe('body-enhanced')
-          // expect(ctx.parsed.customField.step1).toBe('custom-parsed')
-          // expect(ctx.parsed.customField.step2).toBe('custom-enhanced')
           return { success: true }
         })
 
