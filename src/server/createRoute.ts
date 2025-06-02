@@ -32,7 +32,7 @@ type RouteOptions = {
 }
 
 // Context types for progressive building
-type EmptyContext = Record<string, unknown>
+type EmptyContext = {}
 type MergeContexts<T, U> = T & U
 
 // HTTP methods supported
@@ -50,7 +50,7 @@ type SingleParamParsePayload<TContext> = {
 }
 
 // Type to extract parse results from single-param payload with proper inference
-type ExtractSingleParamResults<T> = 
+type ExtractSingleParamResults<T> =
   (T extends { body?: (ctx: any) => Promise<infer B> } ? { body: B } : {}) &
   (T extends { query?: (ctx: any) => Promise<infer Q> } ? { query: Q } : {}) &
   (T extends { auth?: (ctx: any) => Promise<infer A> } ? { auth: A } : {}) &
@@ -60,11 +60,11 @@ type ExtractSingleParamResults<T> =
   (T extends { path?: infer P } ? P extends string ? { path: { matched: P, params: Record<string, unknown> } } : {} : {}) &
   // Handle custom fields by extracting all non-predefined function properties
   {
-    [K in keyof T as K extends 'body' | 'query' | 'auth' | 'headers' | 'cookies' | 'method' | 'path' 
-      ? never 
-      : T[K] extends (ctx: any) => Promise<any> 
-        ? K 
-        : never
+    [K in keyof T as K extends 'body' | 'query' | 'auth' | 'headers' | 'cookies' | 'method' | 'path'
+    ? never
+    : T[K] extends (ctx: any) => Promise<any>
+    ? K
+    : never
     ]: T[K] extends (ctx: any) => Promise<infer R> ? R : never
   }
 
@@ -73,21 +73,19 @@ type RemoveNever<T> = {
   [K in keyof T as T[K] extends never ? never : K]: T[K]
 }
 
-// Framework adapters
-const FrameworkAdapters = {
-  auto: (args: unknown) => {
-    if (args && typeof args === 'object' && (args as Record<string, unknown>).method && (args as Record<string, unknown>).url) {
-      return args as Request
-    }
-    if (Array.isArray(args) && args[0]) {
-      const first = args[0]
-      if (first && typeof first === 'object' && (first as Record<string, unknown>).method && (first as Record<string, unknown>).url) {
-        return first as Request
-      }
-    }
-    return args as Request
-  }
-} as const
+// "Last wins" type merger - correctly handles field-level replacement
+type LastWinsMerge<TExisting, TNew> = {
+  [K in keyof TExisting | keyof TNew]: K extends keyof TNew 
+    ? TNew[K] 
+    : K extends keyof TExisting 
+      ? TExisting[K] 
+      : never
+}
+
+// Helper type for parse result merging
+type ParseResult<TContext, TPayload> = TContext extends { parsed: infer TExisting } 
+  ? Omit<TContext, 'parsed'> & { parsed: LastWinsMerge<TExisting, RemoveNever<ExtractSingleParamResults<TPayload>>> }
+  : TContext & { parsed: RemoveNever<ExtractSingleParamResults<TPayload>> }
 
 // Enhanced createRoute with single-parameter approach
 export const createRoute = (routeOptions: RouteOptions = {}) => {
@@ -103,7 +101,7 @@ export class RouteBuilder<TContext = EmptyContext> {
 
   constructor(private routeOptions: RouteOptions) {
     this.routeOptions = {
-      requestObject: routeOptions.requestObject || FrameworkAdapters.auto,
+      requestObject: routeOptions.requestObject || (args => args as Request),
       ...routeOptions
     }
   }
@@ -121,15 +119,15 @@ export class RouteBuilder<TContext = EmptyContext> {
   // Single-parameter parse method - THE KEY INNOVATION that eliminates overload resolution issues
   parse<TPayload extends SingleParamParsePayload<TContext>>(
     payload: TPayload
-  ): RouteBuilder<TContext & { parsed: (TContext extends { parsed: infer TExisting } ? TExisting : {}) & RemoveNever<ExtractSingleParamResults<TPayload>> }> {
+  ): RouteBuilder<ParseResult<TContext, TPayload>> {
     // Store the parse step for later execution
     this.parseSteps.push({
       payload,
       parseFn: async (req: Request, ctx: unknown) => {
         const parsedResults: Record<string, unknown> = {}
-        const context = ctx as Record<string, unknown> & { 
-          _bodyCache?: unknown, 
-          _queryCache?: Record<string, string> 
+        const context = ctx as Record<string, unknown> & {
+          _bodyCache?: unknown,
+          _queryCache?: Record<string, string>
         }
 
         const predefinedFields = ['headers', 'body', 'query', 'cookies', 'auth', 'method', 'path']
@@ -250,11 +248,11 @@ export class RouteBuilder<TContext = EmptyContext> {
       }
     })
 
-    // Create new builder with simple parsed context
-    const newBuilder = new RouteBuilder<TContext & { parsed: (TContext extends { parsed: infer TExisting } ? TExisting : {}) & RemoveNever<ExtractSingleParamResults<TPayload>> }>(this.routeOptions)
+    // Create new builder with merged parsed context
+    const newBuilder = new RouteBuilder<ParseResult<TContext, TPayload>>(this.routeOptions)
     newBuilder.prepareSteps = [...this.prepareSteps]
     newBuilder.parseSteps = [...this.parseSteps]
-    
+
     return newBuilder
   }
 
@@ -269,7 +267,7 @@ export class RouteBuilder<TContext = EmptyContext> {
       try {
         let request: Request
         try {
-          const requestMapper = requestObject || FrameworkAdapters.auto
+          const requestMapper = requestObject || (args => args as Request)
           request = requestMapper(args.length === 1 ? args[0] : args)
         } catch (error) {
           throw new RouteError("Bad Request: Invalid request object", {
@@ -321,14 +319,8 @@ export class RouteBuilder<TContext = EmptyContext> {
               const newResults = result as Record<string, unknown>
 
               for (const [fieldName, fieldResult] of Object.entries(newResults)) {
-                // Merge results - if field already exists and both are objects, merge them
-                if (parsedContext[fieldName] && typeof parsedContext[fieldName] === 'object' && 
-                    fieldResult && typeof fieldResult === 'object') {
-                  parsedContext[fieldName] = { ...(parsedContext[fieldName] as Record<string, unknown>), ...(fieldResult as Record<string, unknown>) }
-                } else {
-                  // For non-objects or first occurrence, just assign
-                  parsedContext[fieldName] = fieldResult
-                }
+                // Last wins approach - simply overwrite
+                parsedContext[fieldName] = fieldResult
               }
               context.parsed = parsedContext
             }
@@ -416,14 +408,8 @@ export class RouteBuilder<TContext = EmptyContext> {
               const newResults = result as Record<string, unknown>
 
               for (const [fieldName, fieldResult] of Object.entries(newResults)) {
-                // Merge results - if field already exists and both are objects, merge them
-                if (parsedContext[fieldName] && typeof parsedContext[fieldName] === 'object' && 
-                    fieldResult && typeof fieldResult === 'object') {
-                  parsedContext[fieldName] = { ...(parsedContext[fieldName] as Record<string, unknown>), ...(fieldResult as Record<string, unknown>) }
-                } else {
-                  // For non-objects or first occurrence, just assign
-                  parsedContext[fieldName] = fieldResult
-                }
+                // Last wins approach - simply overwrite
+                parsedContext[fieldName] = fieldResult
               }
               context.parsed = parsedContext
             }
