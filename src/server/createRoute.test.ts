@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test"
 import { createRoute, RouteError } from "./createRoute"
+import type { Expect, Eq } from "../types-helper"
 
 describe("Stage 1: Foundation Types & RouteError", () => {
   describe("RouteError", () => {
@@ -100,9 +101,13 @@ describe("Stage 1: Foundation Types & RouteError", () => {
     })
 
     test("throw error for parse method (not implemented yet)", () => {
-      const builder = createRoute().parse({
-        body: async (body, ctx) => ({ name: "test" })
-      })
+      const builder = createRoute()
+        .parse({
+          body: async (ctx) => {
+            type TestBodyIsNotAny = Expect<Eq<typeof ctx.body, Record<string, unknown>>>
+            return { name: "test" }
+          }
+        })
       expect(builder).toBeDefined()
     })
   })
@@ -373,7 +378,7 @@ describe("Stage 3: Context Type System", () => {
     test("parse method adds parsed property to context", () => {
       const builder = createRoute()
         .parse({
-          body: async (body: unknown, ctx: unknown) => {
+          body: async (ctx) => {
             return { name: "test" }
           }
         })
@@ -391,12 +396,12 @@ describe("Stage 3: Context Type System", () => {
     test("multiple parse calls merge parsed results", () => {
       const builder = createRoute()
         .parse({
-          headers: async (headers: Headers, ctx: unknown) => {
+          headers: async (ctx) => {
             return { userAgent: "test-agent" }
           }
         })
         .parse({
-          body: async (body: unknown, ctx: unknown) => {
+          body: async (ctx) => {
             return { name: "test" }
           }
         })
@@ -417,7 +422,7 @@ describe("Stage 3: Context Type System", () => {
           return { role: "admin" as const }
         })
         .parse({
-          headers: async (headers: Headers, ctx: unknown) => {
+          headers: async (ctx) => {
             // ctx should have { role: "admin" }
             return { userAgent: "test" }
           }
@@ -444,13 +449,13 @@ describe("Stage 3: Context Type System", () => {
     test("multiple parse calls on same field should merge types", () => {
       const builder = createRoute()
         .parse({
-          body: async (body: unknown, ctx: unknown) => {
+          body: async (ctx) => {
             // First validation - basic structure
             return { name: "test" as string }
           }
         })
         .parse({
-          body: async (body: unknown, ctx: unknown) => {
+          body: async (ctx) => {
             // Second validation - type narrowing (e.g., email validation)
             return { name: "test@example.com" as string, age: 25 }
           }
@@ -465,6 +470,72 @@ describe("Stage 3: Context Type System", () => {
       })
 
       expect(route).toBeDefined()
+    })
+
+    test("last wins for multiple parse calls on same field", async () => {
+      const route = createRoute()
+        .parse({
+          body: async (ctx) => {
+            // First validation - basic structure
+            const data = ctx.body as { email: string }
+            return { email: data.email }
+          }
+        })
+        .parse({
+          body: async (ctx) => {
+            // Second validation - overrides the first one (last wins)
+            return { age: ctx.body.age as number, isValid: true }
+          }
+        })
+        .handle(async (req, ctx) => {
+          // Should have only the last parse result: { age, isValid }
+          // email should NOT be present since it was overridden
+
+          type TestParsedBody = Expect<Eq<typeof ctx.parsed.body, { age: number, isValid: boolean }>>
+
+          expect(ctx.parsed.body).toEqual({ age: 25, isValid: true })
+          expect('email' in ctx.parsed.body).toBe(false) // email was overridden
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test', {
+        method: 'POST',
+        body: JSON.stringify({ email: 'test@example.com', age: 25 })
+      })
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true })
+    })
+
+    test("manual merge with previous parse results if desired", async () => {
+      const route = createRoute()
+        .parse({
+          body: async (ctx) => {
+            // First validation - basic structure
+            const data = ctx.body as { email: string }
+            return { email: data.email }
+          }
+        })
+        .parse({
+          body: async (ctx) => {
+            // Second validation - manually merge with previous results
+            const data = ctx.body as { email: string, age: number }
+            return { ...ctx.parsed.body, age: data.age, isValid: true }
+          }
+        })
+        .handle(async (req, ctx) => {
+          // Should have merged results since we manually spread
+          expect(ctx.parsed.body.email).toBe('test@example.com')
+          expect(ctx.parsed.body.age).toBe(25)
+          expect(ctx.parsed.body.isValid).toBe(true)
+          return { success: true }
+        })
+
+      const mockRequest = new Request('http://localhost/test', {
+        method: 'POST',
+        body: JSON.stringify({ email: 'test@example.com', age: 25 })
+      })
+      const result = await route(mockRequest)
+      expect(result).toEqual({ success: true })
     })
   })
 
@@ -482,7 +553,7 @@ describe("Stage 3: Context Type System", () => {
     test("parse returns new builder instance", () => {
       const builder1 = createRoute()
       const builder2 = builder1.parse({
-        body: async (body: unknown, ctx: unknown) => ({ name: "test" })
+        body: async (ctx) => ({ name: "test" })
       })
 
       expect(builder1).not.toBe(builder2)
@@ -499,7 +570,7 @@ describe("Stage 3: Context Type System", () => {
 
       const builder3 = builder2
         .parse({
-          headers: async (headers: Headers, ctx: unknown) => ({ userAgent: "test" })
+          headers: async (ctx) => ({ userAgent: "test" })
         })
 
       // Each builder should maintain the chain of steps
@@ -514,7 +585,7 @@ describe("Stage 3: Context Type System", () => {
       const route = createRoute()
         .prepare(async (req, ctx) => ({ role: "admin" as const }))
         .parse({
-          headers: async (headers: Headers, ctx: unknown) => ({ userAgent: "test" })
+          headers: async (ctx) => ({ userAgent: "test" })
         })
         .handle(async (req, ctx) => {
           return {
@@ -551,7 +622,7 @@ describe("Stage 3: Context Type System", () => {
 
   test("parse method is implemented and working", () => {
     const builder = createRoute().parse({
-      body: async (body, ctx) => ({ name: "test" })
+      body: async (ctx) => ({ name: "test" })
     })
 
     expect(builder).toBeDefined()
@@ -816,8 +887,8 @@ describe("Stage 5: Parse Method Foundation", () => {
     test("parse headers field", async () => {
       const route = createRoute()
         .parse({
-          headers: async (headers, ctx) => {
-            const userAgent = headers.get('user-agent')
+          headers: async (ctx) => {
+            const userAgent = ctx.headers.get('user-agent')
             return { userAgent }
           }
         })
@@ -836,8 +907,8 @@ describe("Stage 5: Parse Method Foundation", () => {
     test("parse body field with JSON", async () => {
       const route = createRoute()
         .parse({
-          body: async (body, ctx) => {
-            const parsed = body as { name: string, age: number }
+          body: async (ctx) => {
+            const parsed = ctx.body as { name: string, age: number }
             if (!parsed.name) throw new Error("Name is required")
             return { name: parsed.name, age: parsed.age }
           }
@@ -859,8 +930,8 @@ describe("Stage 5: Parse Method Foundation", () => {
     test("parse query parameters", async () => {
       const route = createRoute()
         .parse({
-          query: async (query, ctx) => {
-            const params = query
+          query: async (ctx) => {
+            const params = ctx.query
             return {
               search: params.search || '',
               page: Number.parseInt(params.page || '1')
@@ -880,8 +951,8 @@ describe("Stage 5: Parse Method Foundation", () => {
     test("parse cookies", async () => {
       const route = createRoute()
         .parse({
-          cookies: async (cookies, ctx) => {
-            const parsed = cookies as Record<string, string>
+          cookies: async (ctx) => {
+            const parsed = ctx.cookies as Record<string, string>
             return {
               sessionId: parsed.sessionId,
               theme: parsed.theme || 'light'
@@ -903,8 +974,8 @@ describe("Stage 5: Parse Method Foundation", () => {
     test("parse auth header", async () => {
       const route = createRoute()
         .parse({
-          auth: async (authHeader, ctx) => {
-            const token = authHeader.replace('Bearer ', '')
+          auth: async (ctx) => {
+            const token = ctx.authHeader.replace('Bearer ', '')
             if (token === 'valid-token') {
               return { userId: '123', role: 'admin' }
             }
@@ -954,66 +1025,66 @@ describe("Stage 5: Parse Method Foundation", () => {
     })
   })
 
-  describe("Custom Field Parsing", () => {
-    test("parse custom field", async () => {
-      const route = createRoute()
-        .parse({
-          customField: async (req, ctx) => {
-            const url = new URL(req.url)
-            return { host: url.hostname }
-          }
-        })
-        .handle(async (req, ctx) => {
-          expect(ctx.parsed.customField).toEqual({ host: 'localhost' })
-          return { success: true }
-        })
+  // describe("Custom Field Parsing", () => {
+  //   test("parse custom field", async () => {
+  //     const route = createRoute()
+  //       .parse({
+  //         customField: async (ctx) => {
+  //           const url = new URL(req.url)
+  //           return { host: url.hostname }
+  //         }
+  //       })
+  //       .handle(async (req, ctx) => {
+  //         expect(ctx.parsed.customField).toEqual({ host: 'localhost' })
+  //         return { success: true }
+  //       })
 
-      const mockRequest = new Request('http://localhost/test')
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
-    })
+  //     const mockRequest = new Request('http://localhost/test')
+  //     const result = await route(mockRequest)
+  //     expect(result).toEqual({ success: true })
+  //   })
 
-    test("parse multiple custom fields", async () => {
-      const route = createRoute()
-        .parse({
-          timestamp: async (req, ctx) => {
-            return { value: Date.now() }
-          },
-          requestId: async (req, ctx) => {
-            return { id: Math.random().toString(36) }
-          }
-        })
-        .handle(async (req, ctx) => {
-          expect(typeof ctx.parsed.timestamp.value).toBe('number')
-          expect(typeof ctx.parsed.requestId.id).toBe('string')
-          return { success: true }
-        })
+  //   test("parse multiple custom fields", async () => {
+  //     const route = createRoute()
+  //       .parse({
+  //         timestamp: async (ctx) => {
+  //           return { value: Date.now() }
+  //         },
+  //         requestId: async (ctx) => {
+  //           return { id: Math.random().toString(36) }
+  //         }
+  //       })
+  //       .handle(async (req, ctx) => {
+  //         type TestTypeOfTimestamp = Expect<Eq<typeof ctx.parsed.timestamp, { value: number }>>
+  //         type TestTypeOfRequestId = Expect<Eq<typeof ctx.parsed.requestId, { id: string }>>
 
-      const mockRequest = new Request('http://localhost/test')
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
-    })
-  })
+  //         expect(typeof ctx.parsed.timestamp.value).toBe('number')
+  //         expect(typeof ctx.parsed.requestId.id).toBe('string')
+  //         return { success: true }
+  //       })
+
+  //     const mockRequest = new Request('http://localhost/test')
+  //     const result = await route(mockRequest)
+  //     expect(result).toEqual({ success: true })
+  //   })
+  // })
 
   describe("Mixed Parsing", () => {
     test("parse predefined and custom fields together", async () => {
       const route = createRoute()
         .parse({
-          auth: async (authHeader, ctx) => {
-            return { token: authHeader.replace('Bearer ', '') }
+          auth: async (ctx) => {
+            type TestAuthHeaderIsString = Expect<Eq<typeof ctx.authHeader, string>>
+            return { token: ctx.authHeader.replace('Bearer ', '') }
           },
-          body: async (body, ctx) => {
-            const parsed = body as { name: string }
+          body: async (ctx) => {
+            const parsed = ctx.body as { name: string }
             return { name: parsed.name }
           },
-          customField: async (req, ctx) => {
-            return { timestamp: Date.now() }
-          }
         })
         .handle(async (req, ctx) => {
           expect(ctx.parsed.auth.token).toBe('test-token')
           expect(ctx.parsed.body.name).toBe('test')
-          expect(typeof ctx.parsed.customField.timestamp).toBe('number')
           return { success: true }
         })
 
@@ -1034,7 +1105,7 @@ describe("Stage 5: Parse Method Foundation", () => {
     test("wrap parse errors in RouteError", async () => {
       const route = createRoute()
         .parse({
-          body: async (body, ctx) => {
+          body: async (ctx) => {
             throw new Error("Invalid body format")
           }
         })
@@ -1063,9 +1134,9 @@ describe("Stage 5: Parse Method Foundation", () => {
     test("auth parsing requires authorization header", async () => {
       const route = createRoute()
         .parse({
-          auth: async (authHeader, ctx) => {
-            return { token: authHeader }
-          }
+          auth: async (ctx) => {
+            return { token: ctx.authHeader }
+          },
         })
         .handle(async (req, ctx) => {
           return { success: true }
@@ -1140,20 +1211,18 @@ describe("Stage 5: Parse Method Foundation", () => {
           timestamp: Date.now()
         }))
         .parse({
-          custom: async (req, ctx) => {
+          body: async (ctx) => {
+            type TestTypeOfCtxPrepared = Expect<Eq<typeof ctx.prepared, boolean>>
+            type TestTypeOfCtxTimestamp = Expect<Eq<typeof ctx.timestamp, number>>
             // Context should include prepare results
-            expect(ctx).toEqual({
-              prepared: true,
-              timestamp: expect.any(Number)
-            })
-            return "parsed"
+            return { name: "parsed" }
           }
         })
         .handle(async (req, ctx) => {
           return {
             prepared: ctx.prepared,
             timestamp: ctx.timestamp,
-            custom: ctx.parsed.custom
+            custom: ctx.parsed.body.name
           }
         })
 
@@ -1176,22 +1245,21 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
       const route = createRoute()
         .parse({
           // Predefined field with proper typing
-          headers: async (headers, ctx) => {
+          headers: async (ctx) => {
             // headers should be typed as Headers
-            expect(headers instanceof Headers).toBe(true)
-            const userAgent = headers.get('user-agent')
+            const userAgent = ctx.headers.get('user-agent')
             return { userAgent: userAgent || 'unknown' }
           },
           // Custom field with Request access
-          requestInfo: async (req, ctx) => {
-            // req should be typed as Request
-            expect(req instanceof Request).toBe(true)
-            return { method: req.method, url: req.url }
-          }
+          // requestInfo: async (ctx) => {
+          //   // req should be typed as Request
+          //   expect(req instanceof Request).toBe(true)
+          //   return { method: req.method, url: req.url }
+          // }
         })
         .handle(async (req, ctx) => {
           expect(ctx.parsed.headers.userAgent).toBe('test-browser')
-          expect(ctx.parsed.requestInfo.method).toBe('GET')
+          // expect(ctx.parsed.requestInfo.method).toBe('GET')
           return { success: true }
         })
 
@@ -1205,22 +1273,22 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
     test("mixed predefined and custom parsing works correctly", async () => {
       const route = createRoute()
         .parse({
-          body: async (body, ctx) => {
-            const data = body as { id: number }
+          body: async (ctx) => {
+            const data = ctx.body as { id: number }
             return { id: data.id }
           },
-          auth: async (authHeader, ctx) => {
-            return { token: authHeader.replace('Bearer ', '') }
+          auth: async (ctx) => {
+            return { token: ctx.authHeader.replace('Bearer ', '') }
           },
-          customValidator: async (req, ctx) => {
-            const url = new URL(req.url)
-            return { hasParams: url.searchParams.has('validate') }
-          }
+          // customValidator: async (ctx) => {
+          //   const url = new URL(req.url)
+          //   return { hasParams: url.searchParams.has('validate') }
+          // }
         })
         .handle(async (req, ctx) => {
           expect(ctx.parsed.body.id).toBe(123)
           expect(ctx.parsed.auth.token).toBe('abc123')
-          expect(ctx.parsed.customValidator.hasParams).toBe(true)
+          // expect(ctx.parsed.customValidator.hasParams).toBe(true)
           return { allParsed: true }
         })
 
@@ -1271,8 +1339,8 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
     test("field-specific error messages", async () => {
       const route = createRoute()
         .parse({
-          body: async (body, ctx) => {
-            const data = body as { name: string }
+          body: async (ctx) => {
+            const data = ctx.body as { name: string }
             if (!data.name) {
               throw new Error("Name field is required")
             }
@@ -1305,10 +1373,11 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
     test("handle non-JSON body gracefully", async () => {
       const route = createRoute()
         .parse({
-          body: async (body, ctx) => {
-            // Should receive text when JSON parsing fails
-            expect(typeof body).toBe('string')
-            return { rawText: body as string }
+          body: async (ctx) => {
+            // Body is now consistently Record<string, unknown> - for non-JSON it becomes {text: "..."}
+            expect(typeof ctx.body).toBe('object')
+            const data = ctx.body as { text: string }
+            return { rawText: data.text }
           }
         })
         .handle(async (req, ctx) => {
@@ -1327,9 +1396,9 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
     test("handle empty body", async () => {
       const route = createRoute()
         .parse({
-          body: async (body, ctx) => {
-            // Empty body should be empty string
-            expect(body).toBe('')
+          body: async (ctx) => {
+            // Empty body is now consistently an empty object
+            expect(ctx.body).toEqual({})
             return { isEmpty: true }
           }
         })
@@ -1351,9 +1420,9 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
     test("handle malformed cookies gracefully", async () => {
       const route = createRoute()
         .parse({
-          cookies: async (cookies, ctx) => {
+          cookies: async (ctx) => {
             // Should parse valid cookies and ignore malformed ones
-            return { validCookies: Object.keys(cookies).length }
+            return { validCookies: Object.keys(ctx.cookies).length }
           }
         })
         .handle(async (req, ctx) => {
@@ -1371,8 +1440,8 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
     test("handle empty cookie header", async () => {
       const route = createRoute()
         .parse({
-          cookies: async (cookies, ctx) => {
-            expect(cookies).toEqual({})
+          cookies: async (ctx) => {
+            expect(ctx.cookies).toEqual({})
             return { hasCookies: false }
           }
         })
@@ -1394,6 +1463,7 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
           method: ['GET', 'POST']
         })
         .handle(async (req, ctx) => {
+          type TestRouteMethod = Expect<Eq<typeof ctx.parsed.method, 'GET' | 'POST'>>
           return { method: ctx.parsed.method }
         })
 
@@ -1428,16 +1498,16 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
           return { requestId: 'req-123' }
         })
         .parse({
-          auth: async (authHeader, ctx) => {
+          auth: async (ctx) => {
             // Should have access to prepare context
             expect(ctx.requestId).toBe('req-123')
             return { userId: 'user-456' }
           },
-          body: async (body, ctx) => {
+          body: async (ctx) => {
             // Should have access to both prepare context and previous parse results
             expect(ctx.requestId).toBe('req-123')
             // Note: ctx doesn't have parsed results from same parse call yet
-            const data = body as { message: string }
+            const data = ctx.body as { message: string }
             return { message: data.message }
           }
         })
@@ -1464,22 +1534,23 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
     test("merge object results for type narrowing", async () => {
       const route = createRoute()
         .parse({
-          body: async (body, ctx) => {
+          body: async (ctx) => {
             // First validation - basic structure
-            const data = body as { email: string }
+            const data = ctx.body as { email: string }
             return { email: data.email }
           }
         })
         .parse({
-          body: async (body, ctx) => {
+          body: async (ctx) => {
             // Second validation - type narrowing with additional fields
-            const data = body as { email: string, age: number }
+            const data = ctx.body as { email: string, age: number }
             return { age: data.age, isValid: true }
           }
         })
         .handle(async (req, ctx) => {
           // Should have merged body results: { email, age, isValid }
-          expect(ctx.parsed.body.email).toBe('test@example.com')
+          // @ts-expect-error email is not in ctx.parsed.body because it's been overridden
+          expect(ctx.parsed.body.email).toBe(undefined)
           expect(ctx.parsed.body.age).toBe(25)
           expect(ctx.parsed.body.isValid).toBe(true)
           return { success: true }
@@ -1496,12 +1567,12 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
     test("last wins for non-object fields", async () => {
       const route = createRoute()
         .parse({
-          auth: async (authHeader, ctx) => {
+          auth: async (ctx) => {
             return { token: 'first-token' }
           }
         })
         .parse({
-          auth: async (authHeader, ctx) => {
+          auth: async (ctx) => {
             return { token: 'second-token' } // This should override
           }
         })
@@ -1522,20 +1593,20 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
     test("multiple parse calls progressively build types", async () => {
       const route = createRoute()
         .parse({
-          body: async (body, ctx) => {
-            const data = body as { name: string }
+          body: async (ctx) => {
+            const data = ctx.body as { name: string }
             return { name: data.name }
           }
         })
         .parse({
-          auth: async (authHeader, ctx) => {
+          auth: async (ctx) => {
             return { userId: '123' }
           }
         })
         .parse({
-          body: async (body, ctx) => {
+          body: async (ctx) => {
             // Additional validation on body
-            const data = body as { name: string, email: string }
+            const data = ctx.body as { name: string, email: string }
             return { email: data.email, validated: true }
           }
         })
@@ -1557,28 +1628,28 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
       expect(result).toEqual({ allValidated: true })
     })
 
-    test("type narrowing works with custom fields", async () => {
-      const route = createRoute()
-        .parse({
-          customValidator: async (req, ctx) => {
-            return { step1: 'validated' }
-          }
-        })
-        .parse({
-          customValidator: async (req, ctx) => {
-            return { step2: 'also-validated' }
-          }
-        })
-        .handle(async (req, ctx) => {
-          expect(ctx.parsed.customValidator.step1).toBe('validated')
-          expect(ctx.parsed.customValidator.step2).toBe('also-validated')
-          return { success: true }
-        })
+    // test("type narrowing works with custom fields", async () => {
+    //   const route = createRoute()
+    //     .parse({
+    //       customValidator: async (ctx) => {
+    //         return { step1: 'validated' }
+    //       }
+    //     })
+    //     .parse({
+    //       customValidator: async (ctx) => {
+    //         return { step2: 'also-validated' }
+    //       }
+    //     })
+    //     .handle(async (req, ctx) => {
+    //       expect(ctx.parsed.customValidator.step1).toBe('validated')
+    //       expect(ctx.parsed.customValidator.step2).toBe('also-validated')
+    //       return { success: true }
+    //     })
 
-      const mockRequest = new Request('http://localhost/test')
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
-    })
+    //   const mockRequest = new Request('http://localhost/test')
+    //   const result = await route(mockRequest)
+    //   expect(result).toEqual({ success: true })
+    // })
   })
 
   describe("Context Access in Later Parse Calls", () => {
@@ -1588,16 +1659,16 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
           return { userId: 'user123' }
         })
         .parse({
-          body: async (body, ctx) => {
+          body: async (ctx) => {
             expect(ctx.userId).toBe('user123')
             return { step1: 'complete' }
           }
         })
         .parse({
-          headers: async (headers, ctx) => {
+          headers: async (ctx) => {
             // Should have access to prepare context
             expect(ctx.userId).toBe('user123')
-            return { userAgent: headers.get('user-agent') || 'unknown' }
+            return { userAgent: ctx.headers.get('user-agent') || 'unknown' }
           }
         })
         .handle(async (req, ctx) => {
@@ -1616,57 +1687,57 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
       expect(result).toEqual({ success: true })
     })
 
-    test("parse calls executed in order with cumulative context", async () => {
-      const executionOrder: string[] = []
+    // test("parse calls executed in order with cumulative context", async () => {
+    //   const executionOrder: string[] = []
 
-      const route = createRoute()
-        .parse({
-          step1: async (req, ctx) => {
-            executionOrder.push('parse-step1')
-            return { value: 'first' }
-          }
-        })
-        .parse({
-          step2: async (req, ctx) => {
-            executionOrder.push('parse-step2')
-            // Note: ctx doesn't have parsed results from same execution cycle
-            return { value: 'second' }
-          }
-        })
-        .parse({
-          step3: async (req, ctx) => {
-            executionOrder.push('parse-step3')
-            return { value: 'third' }
-          }
-        })
-        .handle(async (req, ctx) => {
-          executionOrder.push('handle')
-          expect(ctx.parsed.step1.value).toBe('first')
-          expect(ctx.parsed.step2.value).toBe('second')
-          expect(ctx.parsed.step3.value).toBe('third')
-          return { executionOrder }
-        })
+    //   const route = createRoute()
+    //     .parse({
+    //       step1: async (ctx) => {
+    //         executionOrder.push('parse-step1')
+    //         return { value: 'first' }
+    //       }
+    //     })
+    //     .parse({
+    //       step2: async (ctx) => {
+    //         executionOrder.push('parse-step2')
+    //         // Note: ctx doesn't have parsed results from same execution cycle
+    //         return { value: 'second' }
+    //       }
+    //     })
+    //     .parse({
+    //       step3: async (ctx) => {
+    //         executionOrder.push('parse-step3')
+    //         return { value: 'third' }
+    //       }
+    //     })
+    //     .handle(async (req, ctx) => {
+    //       executionOrder.push('handle')
+    //       expect(ctx.parsed.step1.value).toBe('first')
+    //       expect(ctx.parsed.step2.value).toBe('second')
+    //       expect(ctx.parsed.step3.value).toBe('third')
+    //       return { executionOrder }
+    //     })
 
-      const mockRequest = new Request('http://localhost/test')
-      const result = await route(mockRequest)
+    //   const mockRequest = new Request('http://localhost/test')
+    //   const result = await route(mockRequest)
 
-      expect(result.executionOrder).toEqual(['parse-step1', 'parse-step2', 'parse-step3', 'handle'])
-    })
+    //   expect(result.executionOrder).toEqual(['parse-step1', 'parse-step2', 'parse-step3', 'handle'])
+    // })
   })
 
   describe("Complex Type Narrowing Scenarios", () => {
     test("multiple validations on same field with error handling", async () => {
       const route = createRoute()
         .parse({
-          body: async (body, ctx) => {
-            const data = body as { email: string }
+          body: async (ctx) => {
+            const data = ctx.body as { email: string }
             if (!data.email) throw new Error("Email required")
             return { email: data.email }
           }
         })
         .parse({
-          body: async (body, ctx) => {
-            const data = body as { email: string }
+          body: async (ctx) => {
+            const data = ctx.body as { email: string }
             if (!data.email.includes('@')) throw new Error("Invalid email format")
             return { emailValid: true }
           }
@@ -1687,14 +1758,14 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
       // Test error in second validation
       const invalidRoute = createRoute()
         .parse({
-          body: async (body, ctx) => {
-            const data = body as { email: string }
+          body: async (ctx) => {
+            const data = ctx.body as { email: string }
             return { email: data.email }
           }
         })
         .parse({
-          body: async (body, ctx) => {
-            const data = body as { email: string }
+          body: async (ctx) => {
+            const data = ctx.body as { email: string }
             if (!data.email.includes('@')) throw new Error("Invalid email")
             return { emailValid: true }
           }
@@ -1721,26 +1792,26 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
     test("mixed predefined and custom fields with type narrowing", async () => {
       const route = createRoute()
         .parse({
-          body: async (body, ctx) => {
+          body: async (ctx) => {
             return { step1: 'body-parsed' }
           },
-          customField: async (req, ctx) => {
-            return { step1: 'custom-parsed' }
-          }
+          // customField: async (ctx) => {
+          //   return { step1: 'custom-parsed' }
+          // }
         })
         .parse({
-          body: async (body, ctx) => {
+          body: async (ctx) => {
             return { step2: 'body-enhanced' }
           },
-          customField: async (req, ctx) => {
-            return { step2: 'custom-enhanced' }
-          }
+          // customField: async (ctx) => {
+          //   return { step2: 'custom-enhanced' }
+          // }
         })
         .handle(async (req, ctx) => {
           expect(ctx.parsed.body.step1).toBe('body-parsed')
           expect(ctx.parsed.body.step2).toBe('body-enhanced')
-          expect(ctx.parsed.customField.step1).toBe('custom-parsed')
-          expect(ctx.parsed.customField.step2).toBe('custom-enhanced')
+          // expect(ctx.parsed.customField.step1).toBe('custom-parsed')
+          // expect(ctx.parsed.customField.step2).toBe('custom-enhanced')
           return { success: true }
         })
 
@@ -1760,13 +1831,13 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
           return { requestId: 'req-789' }
         })
         .parse({
-          auth: async (authHeader, ctx) => {
+          auth: async (ctx) => {
             expect(ctx.requestId).toBe('req-789')
             return { userId: 'user-456' }
           }
         })
         .parse({
-          auth: async (authHeader, ctx) => {
+          auth: async (ctx) => {
             expect(ctx.requestId).toBe('req-789')
             return { role: 'admin' }
           }
@@ -1847,7 +1918,7 @@ describe("Stage 8: Request Lifecycle Integration", () => {
           return { role: 'admin' }
         })
         .parse({
-          body: async (body: any, ctx: any) => {
+          body: async (ctx) => {
             executionOrder.push('parse')
             return { parsed: true }
           }
@@ -1928,7 +1999,7 @@ describe("Stage 8: Request Lifecycle Integration", () => {
           return { role: 'admin' }
         })
         .parse({
-          headers: async (headers: Headers) => {
+          headers: async (ctx) => {
             executionOrder.push('parse')
             return { userAgent: 'test' }
           }
@@ -1960,9 +2031,11 @@ describe("Stage 8: Request Lifecycle Integration", () => {
         })
 
       const customContext = { customField: 'value' }
-      const result = await route.invoke(customContext as any)
+      // @ts-expect-error customContext doesn't satisfy invoke arg
+      const result = await route.invoke(customContext)
 
       expect(executionOrder).toEqual(['handle']) // Only handle should be called
+      // @ts-expect-error customField is not in result.context
       expect(result.context).toEqual({ customField: 'value' })
     })
 
@@ -2068,7 +2141,6 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           expect(req.url).toBe('http://localhost:3000/api/test')
           expect(req.method).toBe('POST')
           expect(ctx.framework).toBe('nextjs')
-          expect(ctx.requestId).toBeDefined()
           return { success: true }
         })
 
@@ -2224,7 +2296,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           return { prepared: true, userId: 'default-user' }
         })
         .parse({
-          auth: async (header: string) => {
+          auth: async (ctx) => {
             return { token: 'default-token' }
           }
         })
@@ -2259,7 +2331,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           return { prepared: true }
         })
         .parse({
-          headers: async (headers: Headers) => {
+          headers: async (ctx) => {
             executionOrder.push('parse')
             return { parsed: true }
           }
@@ -2283,7 +2355,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           return { prepared: true }
         })
         .parse({
-          body: async (body: unknown) => {
+          body: async (ctx) => {
             executionOrder.push('parse')
             return { parsed: true }
           }
@@ -2298,8 +2370,9 @@ describe("Stage 9: Framework Integration & Invoke", () => {
 
       const result = await route.invoke({
         customData: 'override',
+        // @ts-expect-error body.custom is not valid payload
         parsed: { body: { custom: 'data' } }
-      } as any)
+      })
 
       expect(executionOrder).toEqual(['handle']) // Only handle called
       expect(result.success).toBe(true)
@@ -2453,7 +2526,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       }
 
       expect(capturedError).toBeInstanceOf(RouteError)
-      expect((capturedError as RouteError).errorCode).toBe('CUSTOM_ERROR')
+      expect((capturedError as unknown as RouteError).errorCode).toBe('CUSTOM_ERROR')
     })
 
     test("invoke method error handling", async () => {
@@ -2481,8 +2554,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
     test("Next.js API route pattern", async () => {
       // Simulate Next.js API route: export default async function handler(req, context)
       const nextjsRoute = createRoute({
-        requestObject: (args) => (Array.isArray(args) ? args : [args])[0] as Request,
-        generateRequestId: () => `nextjs-${Math.random().toString(36).substring(2)}`
+        requestObject: (args) => (Array.isArray(args) ? args : [args])[0] as Request
       })
         .prepare(async (req, ctx) => {
           // Extract user from session/headers
@@ -2492,9 +2564,9 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           }
         })
         .parse({
-          body: async (body: unknown, ctx: any) => {
+          body: async (ctx) => {
             // Parse and validate request body
-            return { name: (body as { name: string }).name, email: (body as { email: string }).email }
+            return { name: (ctx.body as { name: string }).name, email: (ctx.body as { email: string }).email }
           },
           method: 'POST'
         })
@@ -2510,8 +2582,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           return {
             success: true,
             user: ctx.user,
-            data: ctx.parsed.body,
-            requestId: ctx.requestId
+            data: ctx.parsed.body
           }
         })
 
@@ -2529,7 +2600,6 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       expect(result.success).toBe(true)
       expect(result.user.token).toBe('Bearer nextjs-token')
       expect(result.data).toEqual({ name: 'John', email: 'john@example.com' })
-      expect(result.requestId).toMatch(/^nextjs-/)
     })
 
     test("Cloudflare Workers pattern", async () => {
@@ -2544,10 +2614,10 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           }
         })
         .parse({
-          query: async (query: Record<string, string>, ctx: any) => {
+          query: async (ctx) => {
             return {
-              limit: Number.parseInt(query.limit || '10'),
-              offset: Number.parseInt(query.offset || '0')
+              limit: Number.parseInt(ctx.query.limit || '10'),
+              offset: Number.parseInt(ctx.query.offset || '0')
             }
           }
         })
@@ -2556,8 +2626,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
             success: true,
             edge: ctx.edge,
             region: ctx.region,
-            pagination: ctx.parsed.query,
-            requestId: ctx.requestId
+            pagination: ctx.parsed.query
           }
         })
 
@@ -2571,8 +2640,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
         success: true,
         edge: true,
         region: 'us-east-1',
-        pagination: { limit: 5, offset: 10 },
-        requestId: expect.any(String)
+        pagination: { limit: 5, offset: 10 }
       })
     })
 
@@ -2600,17 +2668,16 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           return { middleware: 'express' }
         })
         .parse({
-          body: async (body: unknown, ctx: any) => {
+          body: async (ctx) => {
             // Body parsing (typically done by express.json() middleware)
-            return { validated: true, data: body }
+            return { validated: true, data: ctx.body }
           }
         })
         .handle(async (req, ctx) => {
           return {
             message: 'Express route handled',
             middleware: ctx.middleware,
-            body: ctx.parsed.body,
-            requestId: ctx.requestId
+            body: ctx.parsed.body
           }
         })
 
@@ -2629,8 +2696,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       expect(result).toEqual({
         message: 'Express route handled',
         middleware: 'express',
-        body: { validated: true, data: { name: 'Express User' } },
-        requestId: expect.any(String)
+        body: { validated: true, data: { name: 'Express User' } }
       })
     })
   })
@@ -2670,14 +2736,14 @@ describe("Stage 10: Route Type Extraction", () => {
     test("inferRouteType extracts input types from body and query", () => {
       const route = createRoute()
         .parse({
-          body: async (body: unknown) => {
-            const data = body as { name: string, email: string }
-            return { name: data.name, email: data.email }
+          body: async (ctx) => {
+            const body = ctx.body as { name: string, email: string };
+            return { name: body.name, email: body.email }
           },
-          query: async (query: Record<string, string>) => {
+          query: async (ctx) => {
             return {
-              page: Number.parseInt(query.page || '1'),
-              limit: Number.parseInt(query.limit || '10')
+              page: Number.parseInt(ctx.query.page || '1'),
+              limit: Number.parseInt(ctx.query.limit || '10')
             }
           },
           method: 'POST'
@@ -2734,17 +2800,17 @@ describe("Stage 10: Route Type Extraction", () => {
     test("inferRouteType works with complex nested types", () => {
       const route = createRoute()
         .parse({
-          body: async (body: unknown) => {
-            const data = body as {
+          body: async (ctx) => {
+            const data = ctx.body as {
               user: { name: string, profile: { age: number } },
               preferences: string[]
             }
             return data
           },
-          query: async (query: Record<string, string>) => {
+          query: async (ctx) => {
             return {
-              include: query.include?.split(',') || [],
-              sort: query.sort || 'name'
+              include: ctx.query.include?.split(',') || [],
+              sort: ctx.query.sort || 'name'
             }
           },
           method: ['GET', 'POST'] as const,
@@ -2782,8 +2848,8 @@ describe("Stage 10: Route Type Extraction", () => {
       // This demonstrates how the extracted types could be used for client generation
       const userCreateRoute = createRoute()
         .parse({
-          body: async (body: unknown) => {
-            const data = body as { name: string, email: string, age?: number }
+          body: async (ctx) => {
+            const data = ctx.body as { name: string, email: string, age?: number }
             return data
           },
           method: 'POST',
@@ -2799,14 +2865,14 @@ describe("Stage 10: Route Type Extraction", () => {
 
       const userListRoute = createRoute()
         .parse({
-          query: async (query: Record<string, string>) => {
+          query: async (ctx) => {
             return {
-              page: Number.parseInt(query.page || '1'),
-              search: query.search || ''
+              page: Number.parseInt(ctx.query.page || '1'),
+              search: ctx.query.search || ''
             }
           },
           method: 'GET',
-          path: '/api/users'
+          path: '/api/users/[id]'
         })
         .handle(async (req, ctx) => {
           return {

@@ -23,76 +23,6 @@ export class RouteError extends Error {
   }
 }
 
-// Framework-specific request object mappers (internal - for reference/examples)
-const FrameworkAdapters = {
-  // Next.js App Router: (request: NextRequest, context: NextContext) => Response
-  nextjs: (args: unknown) => {
-    const argsArray = Array.isArray(args) ? args : [args]
-    return argsArray[0] as Request // NextRequest extends Request
-  },
-
-  // Express: (req: Request, res: Response, next: NextFunction) => void
-  express: (args: unknown) => {
-    const argsArray = Array.isArray(args) ? args : [args]
-    const req = argsArray[0] as Record<string, unknown>
-    
-    // Convert Express request to standard Request
-    if (req?.method && req.url) {
-      const getFunc = req.get as ((header: string) => string | undefined) | undefined
-      const url = req.protocol ? `${req.protocol}://${getFunc?.('host') ?? 'localhost'}${req.originalUrl || req.url}` 
-                                : `http://localhost${req.originalUrl || req.url}`
-      const headers = new Headers(req.headers as Record<string, string> || {})
-      
-      return new Request(url, {
-        method: req.method as string,
-        headers,
-        body: req.method !== 'GET' && req.method !== 'HEAD' ? JSON.stringify(req.body) : undefined
-      })
-    }
-    
-    throw new Error('Invalid Express request object')
-  },
-
-  // Hono: (c: Context) => Response
-  hono: (args: unknown) => {
-    const context = args as Record<string, unknown>
-    if (context?.req) {
-      return context.req as Request
-    }
-    throw new Error('Invalid Hono context object')
-  },
-
-  // Cloudflare Workers: (request: Request, env: Env, ctx: ExecutionContext) => Response
-  cloudflare: (args: unknown) => {
-    const argsArray = Array.isArray(args) ? args : [args]
-    return argsArray[0] as Request
-  },
-
-  // Bun: (request: Request) => Response
-  bun: (args: unknown) => {
-    return args as Request
-  },
-
-  // Generic: Extract Request from various patterns
-  auto: (args: unknown) => {
-    // If single argument and it's a Request, use it
-    if (args && typeof args === 'object' && (args as Record<string, unknown>).method && (args as Record<string, unknown>).url) {
-      return args as Request
-    }
-    
-    // If array, try first element
-    if (Array.isArray(args) && args[0]) {
-      const first = args[0]
-      if (first && typeof first === 'object' && (first as Record<string, unknown>).method && (first as Record<string, unknown>).url) {
-        return first as Request
-      }
-    }
-    
-    // Default fallback
-    return args as Request
-  }
-} as const
-
 // Enhanced route options with minimal framework integration
 type RouteOptions = {
   onRequest?: (req: Request) => Promise<void>
@@ -102,146 +32,64 @@ type RouteOptions = {
 }
 
 // Context types for progressive building
-type EmptyContext = Record<string, never>
-
-// Enhanced context with requestId
-type ContextWithRequestId = { requestId: string }
-
-// Type utility to merge contexts progressively
+type EmptyContext = Record<string, unknown>
 type MergeContexts<T, U> = T & U
-
-// Type utility for parsed results
-type WithParsed<TContext, TParsed> = TContext & { parsed: TParsed }
-
-// Type utility to merge parsed results (for multiple parse calls)
-type MergeParsed<TExisting, TNew> = {
-  [K in keyof TExisting | keyof TNew]: K extends keyof TNew
-    ? K extends keyof TExisting
-      ? TExisting[K] & TNew[K] // Intersection for type narrowing
-      : TNew[K]
-    : K extends keyof TExisting
-    ? TExisting[K]
-    : never
-}
-
-// Type utility to extract parsed context
-type ExtractParsed<T> = T extends { parsed: infer P } ? P : Record<string, never>
-
-// Helper type to extract non-parsed context
-type ExtractNonParsed<T> = Omit<T, 'parsed'>
-
-// Helper type to infer result types from parser functions with proper literal type preservation
-type InferParsedResult<T> = T extends {
-  headers?: (headers: Headers, ctx: unknown) => Promise<infer H>
-  body?: (body: unknown, ctx: unknown) => Promise<infer B>
-  query?: (query: Record<string, string>, ctx: unknown) => Promise<infer Q>
-  cookies?: (cookies: Record<string, string>, ctx: unknown) => Promise<infer C>
-  auth?: (authorizationHeader: string, ctx: unknown) => Promise<infer A>
-  method?: infer M
-  path?: infer P
-} ? {
-  [K in keyof T as K extends 'method' ? (T[K] extends undefined ? never : 'method') 
-                   : K extends 'path' ? (T[K] extends undefined ? never : 'path')
-                   : K extends 'headers' ? (T[K] extends undefined ? never : 'headers')
-                   : K extends 'body' ? (T[K] extends undefined ? never : 'body') 
-                   : K extends 'query' ? (T[K] extends undefined ? never : 'query')
-                   : K extends 'cookies' ? (T[K] extends undefined ? never : 'cookies')
-                   : K extends 'auth' ? (T[K] extends undefined ? never : 'auth')
-                   : never]: 
-    K extends 'method' ? M
-    : K extends 'path' ? (P extends string ? { matched: P, params: Record<string, unknown> } : never)
-    : K extends 'headers' ? H
-    : K extends 'body' ? B
-    : K extends 'query' ? Q  
-    : K extends 'cookies' ? C
-    : K extends 'auth' ? A
-    : never
-} : T extends Record<string, (req: Request, ctx: unknown) => Promise<infer R>>
-  ? { [K in keyof T]: R }
-  : Record<string, unknown>
-
-// Type utility to filter out never values from inferred types
-type FilterNever<T> = {
-  [K in keyof T as T[K] extends never ? never : K]: T[K]
-}
 
 // HTTP methods supported
 type RouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "OPTIONS" | "HEAD"
 
-// Simplified type system that actually works
-type ParsePayload = {
-  headers?: (headers: Headers, ctx: unknown) => Promise<unknown>
-  body?: (body: unknown, ctx: unknown) => Promise<unknown>
-  query?: (query: Record<string, string>, ctx: unknown) => Promise<unknown>
-  cookies?: (cookies: Record<string, string>, ctx: unknown) => Promise<unknown>
-  auth?: (authorizationHeader: string, ctx: unknown) => Promise<unknown>
+// Single-parameter parse payload - the key insight that eliminates overload resolution issues
+type SingleParamParsePayload<TContext> = {
+  body?: (ctx: TContext & { body: Record<string, unknown> }) => Promise<unknown>
+  query?: (ctx: TContext & { query: Record<string, string> }) => Promise<unknown>
+  auth?: (ctx: TContext & { authHeader: string }) => Promise<unknown>
+  headers?: (ctx: TContext & { headers: Headers }) => Promise<unknown>
+  cookies?: (ctx: TContext & { cookies: Record<string, string> }) => Promise<unknown>
   method?: RouteMethod | RouteMethod[]
   path?: string
-} | Record<string, (req: Request, ctx: unknown) => Promise<unknown>>
+}
 
-// FIXED: Simple extraction of parse results - properly map each field to its return type
-type ExtractParseResultSimple<T> = T extends {
-  headers?: (headers: Headers, ctx: unknown) => Promise<infer H>
-  body?: (body: unknown, ctx: unknown) => Promise<infer B>
-  query?: (query: Record<string, string>, ctx: unknown) => Promise<infer Q>
-  cookies?: (cookies: Record<string, string>, ctx: unknown) => Promise<infer C>
-  auth?: (authorizationHeader: string, ctx: unknown) => Promise<infer A>
-  method?: infer M
-  path?: infer P
-} ? {
-  // FIXED: Map each field to its specific return type, not union
-  [K in keyof T as T[K] extends undefined ? never : K]: 
-    K extends 'method' ? M
-    : K extends 'path' ? (P extends string ? { matched: P, params: Record<string, unknown> } : never)
-    : K extends 'headers' ? H
-    : K extends 'body' ? B
-    : K extends 'query' ? Q  
-    : K extends 'cookies' ? C
-    : K extends 'auth' ? A
-    : never
-} : T extends Record<string, (req: Request, ctx: unknown) => Promise<unknown>>
-  ? { 
-      // FIXED: Map each custom field to its specific return type  
-      [K in keyof T]: T[K] extends (req: Request, ctx: unknown) => Promise<infer R> ? R : never
-    }
-  : Record<string, unknown>
+// Type to extract parse results from single-param payload with proper inference
+type ExtractSingleParamResults<T> = 
+  (T extends { body?: (ctx: any) => Promise<infer B> } ? { body: B } : {}) &
+  (T extends { query?: (ctx: any) => Promise<infer Q> } ? { query: Q } : {}) &
+  (T extends { auth?: (ctx: any) => Promise<infer A> } ? { auth: A } : {}) &
+  (T extends { headers?: (ctx: any) => Promise<infer H> } ? { headers: H } : {}) &
+  (T extends { cookies?: (ctx: any) => Promise<infer C> } ? { cookies: C } : {}) &
+  (T extends { method?: infer M } ? M extends RouteMethod | RouteMethod[] ? { method: M } : {} : {}) &
+  (T extends { path?: infer P } ? P extends string ? { path: { matched: P, params: Record<string, unknown> } } : {} : {}) &
+  // Handle custom fields by extracting all non-predefined function properties
+  {
+    [K in keyof T as K extends 'body' | 'query' | 'auth' | 'headers' | 'cookies' | 'method' | 'path' 
+      ? never 
+      : T[K] extends (ctx: any) => Promise<any> 
+        ? K 
+        : never
+    ]: T[K] extends (ctx: any) => Promise<infer R> ? R : never
+  }
 
-// Remove never fields
+// Remove never fields from type
 type RemoveNever<T> = {
   [K in keyof T as T[K] extends never ? never : K]: T[K]
 }
 
-// Simplified context building
-type SimpleParsedContext<T> = { parsed: RemoveNever<ExtractParseResultSimple<T>> }
-
-// Type utilities for route type extraction (simplified)
-type ExtractPathType<TContext> = TContext extends { parsed: { path: infer P } } 
-  ? P extends { matched: infer M } ? M : string
-  : string
-
-type ExtractMethodType<TContext> = TContext extends { parsed: { method: infer M } } 
-  ? M 
-  : string
-
-type ExtractInputType<TContext> = TContext extends { parsed: infer P }
-  ? {
-      body: P extends { body: infer B } ? B : undefined
-      query: P extends { query: infer Q } ? Q : undefined
+// Framework adapters
+const FrameworkAdapters = {
+  auto: (args: unknown) => {
+    if (args && typeof args === 'object' && (args as Record<string, unknown>).method && (args as Record<string, unknown>).url) {
+      return args as Request
     }
-  : {
-      body: undefined
-      query: undefined
+    if (Array.isArray(args) && args[0]) {
+      const first = args[0]
+      if (first && typeof first === 'object' && (first as Record<string, unknown>).method && (first as Record<string, unknown>).url) {
+        return first as Request
+      }
     }
+    return args as Request
+  }
+} as const
 
-// Route type extraction interface
-type RouteTypeInfo<TContext, TResponse> = {
-  path: ExtractPathType<TContext>
-  method: ExtractMethodType<TContext>
-  input: ExtractInputType<TContext>
-  returnValue: TResponse
-}
-
-// Enhanced createRoute with framework integration
+// Enhanced createRoute with single-parameter approach
 export const createRoute = (routeOptions: RouteOptions = {}) => {
   return new RouteBuilder<EmptyContext>(routeOptions)
 }
@@ -254,19 +102,8 @@ export class RouteBuilder<TContext = EmptyContext> {
   }> = []
 
   constructor(private routeOptions: RouteOptions) {
-    // Enhanced request object mapping with framework support
-    const getRequestMapper = (): (args: unknown) => Request => {
-      // If framework is specified, use its adapter
-      if (routeOptions.requestObject) {
-        return routeOptions.requestObject
-      }
-      
-      // Default to auto-detection
-      return FrameworkAdapters.auto
-    }
-
     this.routeOptions = {
-      requestObject: getRequestMapper(),
+      requestObject: routeOptions.requestObject || FrameworkAdapters.auto,
       ...routeOptions
     }
   }
@@ -274,232 +111,137 @@ export class RouteBuilder<TContext = EmptyContext> {
   prepare<TNewContext extends Record<string, unknown>>(
     prepareFunction: (req: Request, ctx: TContext) => Promise<TNewContext | undefined>
   ): RouteBuilder<MergeContexts<TContext, TNewContext>> {
-    // Store the prepare step for later execution
     this.prepareSteps.push(prepareFunction as (req: Request, ctx: unknown) => Promise<unknown>)
-    
-    // Return new builder with updated context type
     const newBuilder = new RouteBuilder<MergeContexts<TContext, TNewContext>>(this.routeOptions)
     newBuilder.prepareSteps = [...this.prepareSteps]
     newBuilder.parseSteps = [...this.parseSteps]
     return newBuilder
   }
 
-  parse<
-    TPayload extends ParsePayload
-  >(
+  // Single-parameter parse method - THE KEY INNOVATION that eliminates overload resolution issues
+  parse<TPayload extends SingleParamParsePayload<TContext>>(
     payload: TPayload
-  ): RouteBuilder<
-    TContext extends { parsed: infer TExistingParsed }
-      ? MergeContexts<
-          ExtractNonParsed<TContext>, 
-          SimpleParsedContext<TPayload>
-        >
-      : MergeContexts<TContext, SimpleParsedContext<TPayload>>
-  > {
+  ): RouteBuilder<TContext & { parsed: (TContext extends { parsed: infer TExisting } ? TExisting : {}) & RemoveNever<ExtractSingleParamResults<TPayload>> }> {
     // Store the parse step for later execution
     this.parseSteps.push({
       payload,
       parseFn: async (req: Request, ctx: unknown) => {
         const parsedResults: Record<string, unknown> = {}
-        
-        // Check if this is a predefined fields object or custom fields object
+        const context = ctx as Record<string, unknown> & { 
+          _bodyCache?: unknown, 
+          _queryCache?: Record<string, string> 
+        }
+
         const predefinedFields = ['headers', 'body', 'query', 'cookies', 'auth', 'method', 'path']
-        const hasAnyPredefinedField = Object.keys(payload).some(key => predefinedFields.includes(key))
-        
-        if (hasAnyPredefinedField) {
-          // Handle predefined fields with their specific parameter types
-          const predefinedPayload = payload as {
-            headers?: (headers: Headers, ctx: TContext) => Promise<unknown>
-            body?: (body: unknown, ctx: TContext) => Promise<unknown>
-            query?: (query: Record<string, string>, ctx: TContext) => Promise<unknown>
-            cookies?: (cookies: Record<string, string>, ctx: TContext) => Promise<unknown>
-            auth?: (authorizationHeader: string, ctx: TContext) => Promise<unknown>
-            method?: RouteMethod | RouteMethod[]
-            path?: string
-          }
-          
-          // Handle predefined fields
-          if (predefinedPayload.headers) {
-            try {
-              const result = await predefinedPayload.headers(req.headers, ctx as TContext)
-              parsedResults.headers = result
-            } catch (error) {
-              throw new RouteError("Bad Request: Error parsing `headers`", {
-                errorCode: 'PARSE_ERROR',
-                errorMessage: (error as Error).message,
-                httpStatus: 400,
-                cause: error as Error
-              })
-            }
-          }
 
-          if (predefinedPayload.body) {
+        for (const [key, value] of Object.entries(payload)) {
+          if (typeof value === 'function' && predefinedFields.includes(key)) {
             try {
-              // For body parsing with type merging: use previous result if available, otherwise parse from request
-              let bodyData: unknown
-              if (parsedResults.body !== undefined) {
-                // Use previously parsed body result for type merging
-                bodyData = parsedResults.body
-              } else {
-                // First time parsing body - read from request
-                const bodyText = await req.text()
-                try {
-                  bodyData = JSON.parse(bodyText)
-                } catch {
-                  bodyData = bodyText // Fallback to text if not JSON
+              let enhancedContext: Record<string, unknown>
+
+              if (key === 'body') {
+                // Parse and cache body data
+                let bodyData: Record<string, unknown>
+                if (context._bodyCache !== undefined) {
+                  bodyData = context._bodyCache as Record<string, unknown>
+                } else {
+                  const bodyText = await req.text()
+                  if (bodyText.trim() === '') {
+                    bodyData = {}
+                  } else {
+                    try {
+                      bodyData = JSON.parse(bodyText) as Record<string, unknown>
+                    } catch {
+                      bodyData = { text: bodyText }
+                    }
+                  }
+                  context._bodyCache = bodyData
                 }
-              }
-              const result = await predefinedPayload.body(bodyData, ctx as TContext)
-              parsedResults.body = result
-            } catch (error) {
-              throw new RouteError("Bad Request: Error parsing `body`", {
-                errorCode: 'PARSE_ERROR',
-                errorMessage: (error as Error).message,
-                httpStatus: 400,
-                cause: error as Error
-              })
-            }
-          }
-
-          if (predefinedPayload.query) {
-            try {
-              // For query parsing with type merging: use previous result if available, otherwise parse from request
-              let queryData: Record<string, string>
-              if (parsedResults.query !== undefined) {
-                // Use previously parsed query result for type merging
-                queryData = parsedResults.query as Record<string, string>
+                enhancedContext = { ...(ctx as Record<string, unknown>), body: bodyData }
+              } else if (key === 'query') {
+                // Parse and cache query data
+                let queryData: Record<string, string>
+                if (context._queryCache !== undefined) {
+                  queryData = context._queryCache
+                } else {
+                  const url = new URL(req.url)
+                  queryData = Object.fromEntries(url.searchParams.entries())
+                  context._queryCache = queryData
+                }
+                enhancedContext = { ...(ctx as Record<string, unknown>), query: queryData }
+              } else if (key === 'auth') {
+                // Parse auth header
+                const authHeader = req.headers.get('authorization')
+                if (!authHeader) {
+                  throw new Error("Authorization header is required")
+                }
+                enhancedContext = { ...(ctx as Record<string, unknown>), authHeader }
+              } else if (key === 'headers') {
+                enhancedContext = { ...(ctx as Record<string, unknown>), headers: req.headers }
+              } else if (key === 'cookies') {
+                // Parse cookies
+                const cookieHeader = req.headers.get('cookie') || ''
+                const cookies = Object.fromEntries(
+                  cookieHeader.split(';')
+                    .map(c => c.trim().split('='))
+                    .filter(([key, value]) => key && value !== undefined && key.length > 0)
+                    .map(([key, value]) => [key, value || ''])
+                )
+                enhancedContext = { ...(ctx as Record<string, unknown>), cookies }
               } else {
-                // First time parsing query - read from request URL
-                const url = new URL(req.url)
-                queryData = Object.fromEntries(url.searchParams.entries())
+                enhancedContext = { ...(ctx as Record<string, unknown>) }
               }
-              const result = await predefinedPayload.query(queryData, ctx as TContext)
-              parsedResults.query = result
+
+              const result = await (value as (ctx: unknown) => Promise<unknown>)(enhancedContext)
+              parsedResults[key] = result
             } catch (error) {
-              throw new RouteError("Bad Request: Error parsing `query`", {
+              throw new RouteError(`Bad Request: Error parsing \`${key}\``, {
                 errorCode: 'PARSE_ERROR',
                 errorMessage: (error as Error).message,
-                httpStatus: 400,
+                httpStatus: key === 'auth' ? 401 : key === 'method' ? 405 : key === 'path' ? 404 : 400,
                 cause: error as Error
               })
             }
-          }
-
-          if (predefinedPayload.cookies) {
-            try {
-              // Parse cookies from header with enhanced error handling
-              const cookieHeader = req.headers.get('cookie') || ''
-              const cookies = Object.fromEntries(
-                cookieHeader.split(';')
-                  .map(c => c.trim().split('='))
-                  .filter(([key, value]) => key && value !== undefined && key.length > 0)
-                  .map(([key, value]) => [key, value || ''])
-              )
-              const result = await predefinedPayload.cookies(cookies, ctx as TContext)
-              parsedResults.cookies = result
-            } catch (error) {
-              throw new RouteError("Bad Request: Error parsing `cookies`", {
-                errorCode: 'PARSE_ERROR',
-                errorMessage: (error as Error).message,
-                httpStatus: 400,
-                cause: error as Error
-              })
-            }
-          }
-
-          if (predefinedPayload.auth) {
-            try {
-              // Parse Authorization header
-              const authHeader = req.headers.get('authorization')
-              if (!authHeader) {
-                throw new Error("Authorization header is required")
-              }
-              const result = await predefinedPayload.auth(authHeader, ctx as TContext)
-              parsedResults.auth = result
-            } catch (error) {
-              throw new RouteError("Bad Request: Error parsing `auth`", {
-                errorCode: 'PARSE_ERROR',
-                errorMessage: (error as Error).message,
-                httpStatus: 400,
-                cause: error as Error
-              })
-            }
-          }
-
-          if (predefinedPayload.method) {
-            try {
-              // Validate HTTP method
-              const method = req.method as RouteMethod
-              const allowedMethods = Array.isArray(predefinedPayload.method) ? predefinedPayload.method : [predefinedPayload.method]
-              if (!allowedMethods.includes(method)) {
-                throw new Error(`Method ${method} not allowed. Expected: ${allowedMethods.join(', ')}`)
-              }
-              parsedResults.method = method
-            } catch (error) {
+          } else if (key === 'method') {
+            // Handle method validation
+            const method = req.method as RouteMethod
+            const allowedMethods = Array.isArray(value) ? value : [value as RouteMethod]
+            if (!allowedMethods.includes(method)) {
               throw new RouteError("Bad Request: Error parsing `method`", {
                 errorCode: 'PARSE_ERROR',
-                errorMessage: (error as Error).message,
-                httpStatus: 405, // Method Not Allowed
-                cause: error as Error
+                errorMessage: `Method ${method} not allowed. Expected: ${allowedMethods.join(', ')}`,
+                httpStatus: 405,
+                cause: new Error(`Method ${method} not allowed`)
               })
             }
-          }
-
-          if (predefinedPayload.path) {
-            try {
-              // Validate and parse path
-              const url = new URL(req.url)
-              const requestPath = url.pathname
-              const expectedPath = predefinedPayload.path
-              
-              // Simple path matching for now (will be enhanced in Stage 10)
-              if (requestPath !== expectedPath) {
-                throw new Error(`Path ${requestPath} does not match expected path ${expectedPath}`)
-              }
-              parsedResults.path = { matched: expectedPath, params: {} }
-            } catch (error) {
+            parsedResults.method = method
+          } else if (key === 'path') {
+            // Handle path validation
+            const url = new URL(req.url)
+            const requestPath = url.pathname
+            const expectedPath = value as string
+            if (requestPath !== expectedPath) {
               throw new RouteError("Bad Request: Error parsing `path`", {
                 errorCode: 'PARSE_ERROR',
-                errorMessage: (error as Error).message,
-                httpStatus: 404, // Not Found
-                cause: error as Error
+                errorMessage: `Path ${requestPath} does not match expected path ${expectedPath}`,
+                httpStatus: 404,
+                cause: new Error('Path mismatch')
               })
             }
-          }
-          
-          // Also handle any custom fields that might be mixed in
-          for (const [key, value] of Object.entries(payload)) {
-            if (!predefinedFields.includes(key) && typeof value === 'function') {
-              try {
-                const result = await (value as (req: Request, ctx: TContext) => Promise<unknown>)(req, ctx as TContext)
-                parsedResults[key] = result
-              } catch (error) {
-                throw new RouteError(`Bad Request: Error parsing \`${key}\``, {
-                  errorCode: 'PARSE_ERROR',
-                  errorMessage: (error as Error).message,
-                  httpStatus: 400,
-                  cause: error as Error
-                })
-              }
-            }
-          }
-        } else {
-          // Handle pure custom fields (Record<string, function>)
-          const customPayload = payload as Record<string, (req: Request, ctx: TContext) => Promise<unknown>>
-          
-          for (const [key, value] of Object.entries(customPayload)) {
-            if (typeof value === 'function') {
-              try {
-                const result = await value(req, ctx as TContext)
-                parsedResults[key] = result
-              } catch (error) {
-                throw new RouteError(`Bad Request: Error parsing \`${key}\``, {
-                  errorCode: 'PARSE_ERROR',
-                  errorMessage: (error as Error).message,
-                  httpStatus: 400,
-                  cause: error as Error
-                })
-              }
+            parsedResults.path = { matched: expectedPath, params: {} }
+          } else if (typeof value === 'function') {
+            // Handle custom fields - they get ctx.request  
+            try {
+              const enhancedContext = { ...(ctx as Record<string, unknown>), request: req }
+              const result = await (value as (ctx: unknown) => Promise<unknown>)(enhancedContext)
+              parsedResults[key] = result
+            } catch (error) {
+              throw new RouteError(`Bad Request: Error parsing \`${key}\``, {
+                errorCode: 'PARSE_ERROR',
+                errorMessage: (error as Error).message,
+                httpStatus: 400,
+                cause: error as Error
+              })
             }
           }
         }
@@ -508,12 +250,8 @@ export class RouteBuilder<TContext = EmptyContext> {
       }
     })
 
-    // Create new builder with updated context type
-    const newBuilder = new RouteBuilder<
-      TContext extends { parsed: infer TExistingParsed }
-        ? MergeContexts<ExtractNonParsed<TContext>, SimpleParsedContext<TPayload>>
-        : MergeContexts<TContext, SimpleParsedContext<TPayload>>
-    >(this.routeOptions)
+    // Create new builder with simple parsed context
+    const newBuilder = new RouteBuilder<TContext & { parsed: (TContext extends { parsed: infer TExisting } ? TExisting : {}) & RemoveNever<ExtractSingleParamResults<TPayload>> }>(this.routeOptions)
     newBuilder.prepareSteps = [...this.prepareSteps]
     newBuilder.parseSteps = [...this.parseSteps]
     
@@ -527,10 +265,8 @@ export class RouteBuilder<TContext = EmptyContext> {
     const prepareSteps = this.prepareSteps
     const parseSteps = this.parseSteps
 
-    // Enhanced route handler with framework integration
     async function routeHandler(...args: unknown[]): Promise<TResponse> {
       try {
-        // Enhanced request object extraction with framework support
         let request: Request
         try {
           const requestMapper = requestObject || FrameworkAdapters.auto
@@ -543,34 +279,27 @@ export class RouteBuilder<TContext = EmptyContext> {
             cause: error as Error
           })
         }
-        
-        // Call onRequest hook if provided
+
         if (onRequest) {
           await onRequest(request)
         }
 
         // Build context by executing prepare steps
-        // Start with requestId in context
         let context: Record<string, unknown> = {}
-        
+
         for (const prepareStep of prepareSteps) {
           try {
             const result = await prepareStep(request, context)
-            // Merge returned context (if any) into existing context
             if (result && typeof result === 'object') {
               context = { ...context, ...result }
             }
           } catch (error) {
-            // Enhanced error handling with metadata
             if (onError) {
               await onError(error as Error)
             }
-            
-            // Wrap prepare errors in RouteError
             if (error instanceof RouteError) {
               throw error
             }
-            
             throw new RouteError("Bad Request: Error preparing request handler", {
               errorCode: 'PREPARE_ERROR',
               errorMessage: (error as Error).message,
@@ -588,35 +317,28 @@ export class RouteBuilder<TContext = EmptyContext> {
               if (!context.parsed) {
                 context.parsed = {}
               }
-              
-              // Enhanced merging for type narrowing
               const parsedContext = context.parsed as Record<string, unknown>
               const newResults = result as Record<string, unknown>
-              
+
               for (const [fieldName, fieldResult] of Object.entries(newResults)) {
-                if (parsedContext[fieldName] && typeof parsedContext[fieldName] === 'object' && typeof fieldResult === 'object') {
-                  // Merge objects for type narrowing (intersection)
-                  parsedContext[fieldName] = {
-                    ...parsedContext[fieldName] as Record<string, unknown>,
-                    ...fieldResult as Record<string, unknown>
-                  }
+                // Merge results - if field already exists and both are objects, merge them
+                if (parsedContext[fieldName] && typeof parsedContext[fieldName] === 'object' && 
+                    fieldResult && typeof fieldResult === 'object') {
+                  parsedContext[fieldName] = { ...(parsedContext[fieldName] as Record<string, unknown>), ...(fieldResult as Record<string, unknown>) }
                 } else {
-                  // Override with new value (last wins for non-objects)
+                  // For non-objects or first occurrence, just assign
                   parsedContext[fieldName] = fieldResult
                 }
               }
+              context.parsed = parsedContext
             }
           } catch (error) {
-            // Enhanced error handling with metadata
             if (onError) {
               await onError(error as Error)
             }
-            
-            // Wrap parse errors in RouteError
             if (error instanceof RouteError) {
               throw error
             }
-            
             throw new RouteError("Bad Request: Error parsing request", {
               errorCode: 'PARSE_ERROR',
               errorMessage: (error as Error).message,
@@ -626,54 +348,46 @@ export class RouteBuilder<TContext = EmptyContext> {
           }
         }
 
-        // Call the actual handler with built context
         const response = await handlerFn(request, context as TContext)
 
-        // Call onResponse hook if provided (create Response object for the hook if needed)
         if (onResponse) {
           let responseForHook: Response
           if (response instanceof Response) {
             responseForHook = response
           } else {
-            // Create a temporary Response for the hook, but still return the original response
             responseForHook = new Response(JSON.stringify(response), {
               status: 200,
-              headers: { 
-                'Content-Type': 'application/json'
-              }
+              headers: { 'Content-Type': 'application/json' }
             })
           }
           await onResponse(responseForHook)
         }
 
-        // Return exactly what the user returned - maintain backward compatibility
         return response
       } catch (error) {
-        // Handle errors through the error hook
         if (onError) {
           await onError(error as Error)
         }
-        
-        // Re-throw the error so it can be handled by the framework
         throw error
       }
     }
-    
-    // Enhanced invoke method with better context typing
+
+    // Enhanced invoke method
     routeHandler.invoke = async (contextOverride?: Partial<TContext>): Promise<TResponse> => {
       try {
-        // Create a mock request for invoke
         const mockRequest = new Request('http://localhost/invoke')
-        
-        if (contextOverride) {
-          // Merge provided context override
+        const isCompleteOverride = contextOverride && 'parsed' in contextOverride
+
+        if (isCompleteOverride) {
           const fullContext = { ...contextOverride } as TContext
           return await handlerFn(mockRequest, fullContext)
         }
-        
-        // Build context by executing prepare steps
+
         let context: Record<string, unknown> = {}
-        
+        if (contextOverride) {
+          context = { ...contextOverride }
+        }
+
         for (const prepareStep of prepareSteps) {
           try {
             const result = await prepareStep(mockRequest, context)
@@ -681,25 +395,16 @@ export class RouteBuilder<TContext = EmptyContext> {
               context = { ...context, ...result }
             }
           } catch (error) {
-            // Enhanced error handling with metadata for invoke
             if (onError) {
               await onError(error as Error)
             }
-            
             if (error instanceof RouteError) {
               throw error
             }
-            
-            throw new RouteError("Internal Server Error: Error in prepare step", {
-              errorCode: 'PREPARE_ERROR',
-              errorMessage: (error as Error).message,
-              httpStatus: 500,
-              cause: error as Error
-            })
+            throw new Error((error as Error).message)
           }
         }
 
-        // Execute parse steps with progressive type narrowing
         for (const parseStep of parseSteps) {
           try {
             const result = await parseStep.parseFn(mockRequest, context)
@@ -707,56 +412,40 @@ export class RouteBuilder<TContext = EmptyContext> {
               if (!context.parsed) {
                 context.parsed = {}
               }
-              
-              // Enhanced merging for type narrowing
               const parsedContext = context.parsed as Record<string, unknown>
               const newResults = result as Record<string, unknown>
-              
+
               for (const [fieldName, fieldResult] of Object.entries(newResults)) {
-                if (parsedContext[fieldName] && typeof parsedContext[fieldName] === 'object' && typeof fieldResult === 'object') {
-                  // Merge objects for type narrowing (intersection)
-                  parsedContext[fieldName] = {
-                    ...parsedContext[fieldName] as Record<string, unknown>,
-                    ...fieldResult as Record<string, unknown>
-                  }
+                // Merge results - if field already exists and both are objects, merge them
+                if (parsedContext[fieldName] && typeof parsedContext[fieldName] === 'object' && 
+                    fieldResult && typeof fieldResult === 'object') {
+                  parsedContext[fieldName] = { ...(parsedContext[fieldName] as Record<string, unknown>), ...(fieldResult as Record<string, unknown>) }
                 } else {
-                  // Override with new value (last wins for non-objects)
+                  // For non-objects or first occurrence, just assign
                   parsedContext[fieldName] = fieldResult
                 }
               }
+              context.parsed = parsedContext
             }
           } catch (error) {
-            // Enhanced error handling for invoke
             if (onError) {
               await onError(error as Error)
             }
-            
             if (error instanceof RouteError) {
               throw error
             }
-            
-            throw new RouteError("Internal Server Error: Error in parse step", {
-              errorCode: 'PARSE_ERROR',
-              errorMessage: (error as Error).message,
-              httpStatus: 500,
-              cause: error as Error
-            })
+            throw new Error((error as Error).message)
           }
         }
-        
-        // Call handler with built context (note: onRequest/onResponse hooks are skipped for invoke)
+
         return await handlerFn(mockRequest, context as TContext)
       } catch (error) {
-        // Handle errors through the error hook for invoke
         if (onError) {
           await onError(error as Error)
         }
-        
-        // Wrap non-RouteError errors
         if (error instanceof RouteError) {
           throw error
         }
-        
         throw new RouteError("Internal Server Error", {
           errorCode: 'HANDLER_ERROR',
           errorMessage: (error as Error).message,
@@ -766,16 +455,25 @@ export class RouteBuilder<TContext = EmptyContext> {
       }
     }
 
-    // Add type extraction property (runtime never used, only for TypeScript)
     routeHandler.inferRouteType = {} as RouteTypeInfo<TContext, TResponse>
-
     return routeHandler as EnhancedRouteHandler<TContext, TResponse>
   }
 }
 
-// Enhanced route handler interface with framework integration
+// Enhanced route handler interface
 interface EnhancedRouteHandler<TContext, TResponse> {
   (...args: unknown[]): Promise<TResponse>
   invoke(contextOverride?: Partial<TContext>): Promise<TResponse>
   inferRouteType: RouteTypeInfo<TContext, TResponse>
 }
+
+// Route type extraction interface (simplified)
+type RouteTypeInfo<TContext, TResponse> = {
+  path: string
+  method: string
+  input: {
+    body: unknown
+    query: unknown
+  }
+  returnValue: TResponse
+} 
