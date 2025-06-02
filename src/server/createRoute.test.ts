@@ -2764,7 +2764,7 @@ describe("Stage 10: Route Type Extraction", () => {
         })
 
       type RouteType2 = typeof route2.inferRouteType
-      type TestTypePath2 = Expect<Eq<RouteType2['path'], '/api/users/[id]'>>
+      type TestTypePath2 = Expect<Eq<RouteType2['path'], `/api/users/${string}`>>
       type TestTypePathParams2 = Expect<Eq<RouteType2['pathParams'], { id: string }>>
       type TestTypeMethod2 = Expect<Eq<RouteType2['method'], 'GET'>>
       type TestTypeInput2 = Expect<Eq<RouteType2['input'], { body: { name: string, email: string }, query: undefined }>>

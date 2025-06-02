@@ -477,12 +477,18 @@ type ExtractPathParams<T extends string> =
     ? { [K in Param]: string }
     : {}
 
+// Transform path parameters from [param] to ${string} for API client types
+type TransformPathParams<T extends string> = 
+  T extends `${infer Start}[${infer Param}]${infer Rest}`
+    ? `${Start}${string}${TransformPathParams<Rest>}`
+    : T
+
 // Enhanced route type extraction with automatic literal type inference
 type RouteTypeInfo<TContext, TResponse, TAccumulatedPayloads = {}> = {
   path: TAccumulatedPayloads extends { path: infer P } 
     ? P extends string 
       ? P extends `${string}[${string}]${string}` 
-        ? P  // Keep literal for parameterized paths
+        ? TransformPathParams<P>  // Transform [id] to ${string}
         : P  // Keep literal for simple paths
       : string
     : string
