@@ -325,7 +325,6 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
                 context.parsed = parsedContext
               }
             } catch (error) {
-              console.log('---- error:', error, error instanceof RouteError);
               routeBuilder.routeError = isRouteError(error)
                 ? error
                 : new RouteError("Bad Request: Error when parsing request", {
