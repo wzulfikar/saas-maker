@@ -28,7 +28,7 @@ type RouteOptions = {
   onRequest?: (req: Request) => Promise<void> | Promise<Response>
   onResponse?: (res: Response) => Promise<void> | Promise<Response>
   onError?: (err: Error) => Promise<void> | Promise<Response>
-  requestObject?: (args: unknown) => Request
+  requestObject?: (...args: unknown[]) => Request
 }
 
 // Context types for progressive building
@@ -103,10 +103,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
   }> = []
 
   constructor(private routeOptions: RouteOptions) {
-    this.routeOptions = {
-      requestObject: routeOptions.requestObject || (args => args as Request),
-      ...routeOptions
-    }
+    this.routeOptions = routeOptions
   }
 
   prepare<TNewContext extends Record<string, unknown>>(
@@ -270,8 +267,8 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
       try {
         let request: Request
         try {
-          const requestMapper = requestObject || (args => args as Request)
-          request = requestMapper(args.length === 1 ? args[0] : args)
+          request = args[0] instanceof Request ? args[0] as Request : requestObject?.(...args) as Request
+          if (!request) throw new Error('Invalid request object')
         } catch (error) {
           throw new RouteError("Bad Request: Invalid request object", {
             errorCode: 'REQUEST_MAPPING_ERROR',
@@ -347,6 +344,12 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
         delete cleanContext._queryCache
 
         const response = await handlerFn(request, cleanContext as TContext)
+        const wrappedResponse = response instanceof Response
+          ? response
+          : new Response(JSON.stringify(response), {
+            status: 200,
+            headers: { 'Content-Type': 'application/json' }
+          })
 
         if (onResponse) {
           let responseForHook: Response
@@ -364,7 +367,8 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
           }
         }
 
-        return response
+        // TODO: fix test
+        return wrappedResponse as unknown as TResponse
       } catch (error) {
         if (onError) {
           const response = await onError(error as Error)

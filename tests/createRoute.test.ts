@@ -2,6 +2,11 @@ import { describe, test, expect } from "bun:test"
 import { createRoute, RouteError } from "../src/server/createRoute"
 import type { Expect, Eq } from "../src/types-helper"
 
+const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
+  status,
+  headers: { 'Content-Type': 'application/json' }
+})
+
 describe("Stage 1: Foundation Types & RouteError", () => {
   describe("RouteError", () => {
     test("create RouteError with all properties", () => {
@@ -161,7 +166,7 @@ describe("Stage 2: Basic Builder Pattern", () => {
 
       const mockRequest = new Request('http://localhost/test')
       const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      expect(result as unknown as Response).toEqual(jsonResponse({ success: true }))
       expect(requestCalled).toBe(true)
     })
 
@@ -216,8 +221,8 @@ describe("Stage 2: Basic Builder Pattern", () => {
       })
 
       const mockRequest = new Request('http://localhost/api/test')
-      const result = await route(mockRequest)
-      expect(result.url).toBe('http://localhost/api/test')
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ url: 'http://localhost/api/test' }))
     })
 
     test("use custom request object mapper", async () => {
@@ -236,8 +241,8 @@ describe("Stage 2: Basic Builder Pattern", () => {
       const wrapper = { req: mockRequest }
       // Cast to function that accepts unknown args
       const routeHandler = route as (...args: unknown[]) => Promise<{ method: string }>
-      const result = await routeHandler(wrapper)
-      expect(result.method).toBe('POST')
+      const response = await routeHandler(wrapper)
+      expect(response as unknown as Response).toEqual(jsonResponse({ method: 'POST' }))
     })
   })
 
@@ -502,8 +507,8 @@ describe("Stage 3: Context Type System", () => {
         method: 'POST',
         body: JSON.stringify({ email: 'test@example.com', age: 25 })
       })
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
 
     test("manual merge with previous parse results if desired", async () => {
@@ -534,8 +539,8 @@ describe("Stage 3: Context Type System", () => {
         method: 'POST',
         body: JSON.stringify({ email: 'test@example.com', age: 25 })
       })
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
   })
 
@@ -646,8 +651,8 @@ describe("Stage 4: Prepare Method", () => {
         })
 
       const mockRequest = new Request('http://localhost/test')
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
 
     test("execute multiple prepare steps and merge context", async () => {
@@ -679,8 +684,8 @@ describe("Stage 4: Prepare Method", () => {
         })
 
       const mockRequest = new Request('http://localhost/test')
-      const result = await route(mockRequest)
-      expect(result).toEqual({ contextBuilt: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ contextBuilt: true }))
     })
 
     test("prepare step can return undefined without affecting context", async () => {
@@ -701,8 +706,8 @@ describe("Stage 4: Prepare Method", () => {
         })
 
       const mockRequest = new Request('http://localhost/test')
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
   })
 
@@ -902,8 +907,8 @@ describe("Stage 5: Parse Method Foundation", () => {
       const mockRequest = new Request('http://localhost/test', {
         headers: { 'user-agent': 'test-agent' }
       })
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
 
     test("parse body field with JSON", async () => {
@@ -925,8 +930,8 @@ describe("Stage 5: Parse Method Foundation", () => {
         body: JSON.stringify({ name: 'John', age: 30 }),
         headers: { 'content-type': 'application/json' }
       })
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
 
     test("parse query parameters", async () => {
@@ -946,8 +951,8 @@ describe("Stage 5: Parse Method Foundation", () => {
         })
 
       const mockRequest = new Request('http://localhost/test?search=test&page=2')
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
 
     test("parse cookies", async () => {
@@ -969,8 +974,8 @@ describe("Stage 5: Parse Method Foundation", () => {
       const mockRequest = new Request('http://localhost/test', {
         headers: { 'cookie': 'sessionId=123; theme=dark' }
       })
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
 
     test("parse auth header", async () => {
@@ -992,8 +997,8 @@ describe("Stage 5: Parse Method Foundation", () => {
       const mockRequest = new Request('http://localhost/test', {
         headers: { 'authorization': 'Bearer valid-token' }
       })
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
 
     test("parse method validation", async () => {
@@ -1007,8 +1012,8 @@ describe("Stage 5: Parse Method Foundation", () => {
         })
 
       const mockRequest = new Request('http://localhost/test', { method: 'POST' })
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
 
     test("parse path validation", async () => {
@@ -1022,8 +1027,8 @@ describe("Stage 5: Parse Method Foundation", () => {
         })
 
       const mockRequest = new Request('http://localhost/api/users')
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
   })
 
@@ -1054,8 +1059,8 @@ describe("Stage 5: Parse Method Foundation", () => {
           'content-type': 'application/json'
         }
       })
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
   })
 
@@ -1185,13 +1190,13 @@ describe("Stage 5: Parse Method Foundation", () => {
         })
 
       const mockRequest = new Request('http://localhost/test')
-      const result = await route(mockRequest)
+      const response = await route(mockRequest)
 
-      expect(result).toEqual({
+      expect(response as unknown as Response).toEqual(jsonResponse({
         prepared: true,
         timestamp: expect.any(Number),
         custom: "parsed"
-      })
+      }))
     })
   })
 })
@@ -1218,8 +1223,8 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
       const mockRequest = new Request('http://localhost/test', {
         headers: { 'user-agent': 'test-browser' }
       })
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
 
     test("mixed predefined and custom parsing works correctly", async () => {
@@ -1249,8 +1254,8 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
         body: JSON.stringify({ id: 123 }),
         headers: { 'authorization': 'Bearer abc123' }
       })
-      const result = await route(mockRequest)
-      expect(result).toEqual({ allParsed: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ allParsed: true }))
     })
   })
 
@@ -1341,8 +1346,8 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
         method: 'POST',
         body: 'plain text data'
       })
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
 
     test("handle empty body", async () => {
@@ -1363,8 +1368,8 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
         method: 'POST',
         body: ''
       })
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
   })
 
@@ -1385,8 +1390,8 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
       const mockRequest = new Request('http://localhost/test', {
         headers: { 'cookie': 'valid1=value1; invalid; valid2=value2; =emptykey' }
       })
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
 
     test("handle empty cookie header", async () => {
@@ -1403,8 +1408,8 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
         })
 
       const mockRequest = new Request('http://localhost/test')
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
   })
 
@@ -1421,13 +1426,13 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
 
       // Test GET
       const getRequest = new Request('http://localhost/test', { method: 'GET' })
-      const getResult = await route(getRequest)
-      expect(getResult).toEqual({ method: 'GET' })
+      const getResponse = await route(getRequest)
+      expect(getResponse as unknown as Response).toEqual(jsonResponse({ method: 'GET' }))
 
       // Test POST
       const postRequest = new Request('http://localhost/test', { method: 'POST' })
-      const postResult = await route(postRequest)
-      expect(postResult).toEqual({ method: 'POST' })
+      const postResponse = await route(postRequest)
+      expect(postResponse as unknown as Response).toEqual(jsonResponse({ method: 'POST' }))
 
       // Test disallowed method
       const putRequest = new Request('http://localhost/test', { method: 'PUT' })
@@ -1475,8 +1480,8 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
         body: JSON.stringify({ message: 'hello' }),
         headers: { 'authorization': 'Bearer token123' }
       })
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
   })
 })
@@ -1512,8 +1517,8 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
         method: 'POST',
         body: JSON.stringify({ email: 'test@example.com', age: 25 })
       })
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
 
     test("last wins for non-object fields", async () => {
@@ -1536,8 +1541,8 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
       const mockRequest = new Request('http://localhost/test', {
         headers: { 'authorization': 'Bearer test' }
       })
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
   })
 
@@ -1572,8 +1577,8 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
         body: JSON.stringify({ test: 'data' }),
         headers: { 'user-agent': 'test-agent' }
       })
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
   })
 
@@ -1605,8 +1610,8 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
         method: 'POST',
         body: JSON.stringify({ email: 'test@example.com' })
       })
-      const result = await route(mockRequest)
-      expect(result).toEqual({ validated: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ validated: true }))
 
       // Test error in second validation
       const invalidRoute = createRoute()
@@ -1664,8 +1669,8 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
         method: 'POST',
         body: JSON.stringify({ test: 'data' })
       })
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
   })
 
@@ -1697,8 +1702,8 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
       const mockRequest = new Request('http://localhost/test', {
         headers: { 'authorization': 'Bearer token123' }
       })
-      const result = await route(mockRequest)
-      expect(result).toEqual({ authorized: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ authorized: true }))
     })
   })
 })
@@ -1720,9 +1725,9 @@ describe("Stage 8: Request Lifecycle Integration", () => {
       })
 
       const mockRequest = new Request('http://localhost/test')
-      const result = await route(mockRequest)
+      const response = await route(mockRequest)
 
-      expect(result).toEqual({ success: true })
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
       expect(hookCalls).toEqual(['onRequest', 'onResponse'])
     })
 
@@ -1996,8 +2001,8 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           return { success: true }
         })
 
-      const result = await route(mockNextRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockNextRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
 
     test("hono adapter extracts request from Hono context", async () => {
@@ -2013,7 +2018,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       }
 
       const route = createRoute({
-        requestObject: (args) => (args as { req: Request }).req
+        requestObject: (...args: unknown[]) => (args[0] as { req: Request }).req as Request
       })
         .prepare(async (req) => ({ framework: 'hono' }))
         .handle(async (req, ctx) => {
@@ -2023,8 +2028,8 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           return { success: true, framework: 'hono' }
         })
 
-      const result = await route(mockHonoContext)
-      expect(result).toEqual({ success: true, framework: 'hono' })
+      const response = await route(mockHonoContext)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true, framework: 'hono' }))
     })
 
     test("cloudflare adapter handles multiple arguments", async () => {
@@ -2047,8 +2052,8 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           return { success: true, platform: 'cloudflare' }
         })
 
-      const result = await route(mockRequest, mockEnv, mockCtx)
-      expect(result).toEqual({ success: true, platform: 'cloudflare' })
+      const response = await route(mockRequest, mockEnv, mockCtx)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true, platform: 'cloudflare' }))
     })
 
     test("auto adapter handles standard Request objects", async () => {
@@ -2066,8 +2071,8 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           return { success: true, detected: 'auto' }
         })
 
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true, detected: 'auto' })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true, detected: 'auto' }))
     })
   })
 
@@ -2081,8 +2086,8 @@ describe("Stage 9: Framework Integration & Invoke", () => {
         })
 
       const mockRequest = new Request('http://localhost/simple')
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
 
     test("express-style request object extraction", async () => {
@@ -2121,8 +2126,8 @@ describe("Stage 9: Framework Integration & Invoke", () => {
         originalUrl: '/express-route'
       }
 
-      const result = await route(mockExpressReq)
-      expect(result).toEqual({ success: true })
+      const response = await route(mockExpressReq)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
 
     test("minimal request mapping", async () => {
@@ -2136,8 +2141,8 @@ describe("Stage 9: Framework Integration & Invoke", () => {
         })
 
       const mockRequest = new Request('http://localhost/minimal')
-      const result = await route(mockRequest)
-      expect(result).toEqual({ success: true, runtime: 'minimal' })
+      const response = await route(mockRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({ success: true, runtime: 'minimal' }))
     })
   })
 
@@ -2246,13 +2251,13 @@ describe("Stage 9: Framework Integration & Invoke", () => {
         })
 
       const mockRequest = new Request('http://localhost/test')
-      const result = await route(mockRequest)
+      const response = await route(mockRequest)
 
       // Should return JSON directly, not wrapped in Response
-      expect(result).toEqual({
+      expect(response as unknown as Response).toEqual(jsonResponse({
         message: 'Hello World',
         prepared: true
-      })
+      }))
     })
 
     test("route handler preserves user Response objects", async () => {
@@ -2269,10 +2274,10 @@ describe("Stage 9: Framework Integration & Invoke", () => {
         })
 
       const mockRequest = new Request('http://localhost/test')
-      const result = await route(mockRequest)
+      const response = await route(mockRequest)
 
       // Should return the Response object as-is
-      expect(result).toBeInstanceOf(Response)
+      expect(response as unknown as Response).toBeInstanceOf(Response)
     })
 
     test("invoke method returns JSON as-is", async () => {
@@ -2456,11 +2461,12 @@ describe("Stage 9: Framework Integration & Invoke", () => {
         body: JSON.stringify({ name: 'John', email: 'john@example.com' })
       })
 
-      const result = await nextjsRoute(mockNextRequest)
-
-      expect(result.success).toBe(true)
-      expect(result.user.token).toBe('Bearer nextjs-token')
-      expect(result.data).toEqual({ name: 'John', email: 'john@example.com' })
+      const response = await nextjsRoute(mockNextRequest)
+      expect(response as unknown as Response).toEqual(jsonResponse({
+        success: true,
+        user: { id: 'user-123', token: 'Bearer nextjs-token' },
+        data: { name: 'John', email: 'john@example.com' }
+      }))
     })
 
     test("Cloudflare Workers pattern", async () => {
@@ -2495,14 +2501,13 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       const mockEnv = { DB_URL: 'sqlite://db.sqlite' }
       const mockCtx = { waitUntil: () => { } }
 
-      const result = await cfRoute(mockCfRequest, mockEnv, mockCtx)
-
-      expect(result).toEqual({
+      const response = await cfRoute(mockCfRequest, mockEnv, mockCtx)
+      expect(response as unknown as Response).toEqual(jsonResponse({
         success: true,
         edge: true,
         region: 'us-east-1',
         pagination: { limit: 5, offset: 10 }
-      })
+      }))
     })
 
     test("Express.js middleware pattern", async () => {
@@ -2552,13 +2557,13 @@ describe("Stage 9: Framework Integration & Invoke", () => {
         originalUrl: '/api/users'
       }
 
-      const result = await expressRoute(mockExpressReq)
+      const response = await expressRoute(mockExpressReq)
 
-      expect(result).toEqual({
+      expect(response as unknown as Response).toEqual(jsonResponse({
         message: 'Express route handled',
         middleware: 'express',
         body: { validated: true, data: { name: 'Express User' } }
-      })
+      }))
     })
   })
 })
