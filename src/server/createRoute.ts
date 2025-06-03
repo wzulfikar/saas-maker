@@ -4,6 +4,7 @@ export class RouteError extends Error {
   public readonly errorMessage: string
   public readonly httpStatus: number
   public readonly cause?: Error
+  public readonly step?: { idx: number, type: 'prepare' | 'parse' }
 
   constructor(
     message: string,
@@ -12,6 +13,7 @@ export class RouteError extends Error {
       errorMessage: string
       httpStatus: number
       cause?: Error
+      step?: { idx: number, type: 'prepare' | 'parse' }
     }
   ) {
     super(message)
@@ -20,6 +22,7 @@ export class RouteError extends Error {
     this.errorMessage = options.errorMessage
     this.httpStatus = options.httpStatus
     this.cause = options.cause
+    this.step = options.step
   }
 }
 
@@ -280,9 +283,10 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
 
         // Build context by executing prepare steps
         let context: Record<string, unknown> = {}
-        let count = 0
+        let stepIdx = 0
 
         for (const step of steps) {
+          const stepInfo = { idx: stepIdx, type: step.type }
           if (step.type === 'prepare') {
             try {
               const result = await step.stepFn(request, context)
@@ -291,13 +295,15 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
               }
             } catch (error) {
               if (error instanceof RouteError) {
+                (error as any).step = stepInfo
                 throw error
               }
-              throw new RouteError("Bad Request: Error preparing request handler", {
+              throw new RouteError("Bad Request: Error when preparing request", {
                 errorCode: 'PREPARE_ERROR',
                 errorMessage: (error as Error).message,
                 httpStatus: 400,
-                cause: error as Error
+                cause: error as Error,
+                step: stepInfo
               })
             }
           } else if (step.type === 'parse') {
@@ -318,16 +324,19 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
               }
             } catch (error) {
               if (error instanceof RouteError) {
+                (error as any).step = stepInfo
                 throw error
               }
-              throw new RouteError("Bad Request: Error parsing request", {
+              throw new RouteError("Bad Request: Error when parsing request", {
                 errorCode: 'PARSE_ERROR',
                 errorMessage: (error as Error).message,
                 httpStatus: 400,
-                cause: error as Error
+                cause: error as Error,
+                step: stepInfo
               })
             }
           }
+          stepIdx++
         }
 
         // Clean context before passing to handler - remove internal cache properties
@@ -379,8 +388,10 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
       try {
         const mockRequest = new Request('http://localhost/invoke')
         let context: Record<string, unknown> = { ...contextOverride }
+        let stepIdx = 0
 
         for (const step of steps) {
+          const stepInfo = { idx: stepIdx, type: step.type }
           if (step.type === 'parse' && !context?.skipParse) {
             try {
               const result = await step.stepFn(mockRequest, context)
@@ -400,13 +411,15 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
               }
             } catch (error) {
               if (error instanceof RouteError) {
+                (error as any).step = stepInfo
                 throw error
               }
               throw new RouteError("Internal Server Error: Error in parse step", {
                 errorCode: 'PARSE_ERROR',
                 errorMessage: (error as Error).message,
                 httpStatus: 500,
-                cause: error as Error
+                cause: error as Error,
+                step: stepInfo
               })
             }
           } else if (step.type === 'prepare' && !context?.skipPrepare) {
@@ -418,16 +431,19 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
               }
             } catch (error) {
               if (error instanceof RouteError) {
+                (error as any).step = stepInfo
                 throw error
               }
               throw new RouteError("Internal Server Error: Error in prepare step", {
                 errorCode: 'PREPARE_ERROR',
                 errorMessage: (error as Error).message,
                 httpStatus: 500,
-                cause: error as Error
+                cause: error as Error,
+                step: stepInfo
               })
             }
           }
+          stepIdx++
         }
 
         // Clean context before passing to handler - remove internal cache properties

@@ -732,7 +732,7 @@ describe("Stage 4: Prepare Method", () => {
         expect(routeError.errorCode).toBe('PREPARE_ERROR')
         expect(routeError.httpStatus).toBe(400)
         expect(routeError.errorMessage).toBe("Unauthorized access")
-        expect(routeError.message).toBe("Bad Request: Error preparing request handler")
+        expect(routeError.message).toBe("Bad Request: Error when preparing request")
         expect(routeError.cause?.message).toBe("Unauthorized access")
       }
     })
