@@ -78,7 +78,7 @@ type ExcludeNever<T> = {
 /**
  * "Last wins" type merger - correctly handles field-level replacement
  **/
-type MergeContext<TExisting, TNew> = {
+type ParseContext<TExisting, TNew> = {
   [K in keyof TExisting | keyof TNew]: K extends keyof TNew
   ? TNew[K]
   : K extends keyof TExisting
@@ -88,23 +88,17 @@ type MergeContext<TExisting, TNew> = {
 
 // Helper type for parse result merging
 type ParseResult<TContext, TPayload> = TContext extends { parsed: infer TExisting }
-  ? Omit<TContext, 'parsed'> & { parsed: MergeContext<TExisting, ExcludeNever<ExtractSingleParamResults<TPayload>>> }
+  ? Omit<TContext, 'parsed'> & { parsed: ParseContext<TExisting, ExcludeNever<ExtractSingleParamResults<TPayload>>> }
   : TContext & { parsed: ExcludeNever<ExtractSingleParamResults<TPayload>> }
 
 // Helper type for accumulating parse payloads
 type AccumulatePayloads<TExisting, TNew> = TExisting & TNew
 
+type StepFn = (req: Request, ctx: unknown) => Promise<unknown>
+
 // Enhanced RouteBuilder that tracks parse payloads for type extraction
 export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
-  // private prepareSteps: Array<(req: Request, ctx: unknown) => Promise<unknown>> = []
-  // private parseSteps: Array<{
-  //   payload: unknown
-  //   parseFn: (req: Request, ctx: unknown) => Promise<unknown>
-  // }> = []
-  private steps: (
-    | { type: 'prepare', prepareFn: (req: Request, ctx: unknown) => Promise<unknown> }
-    | { type: 'parse', parseFn: (req: Request, ctx: unknown) => Promise<unknown>, payload: unknown }
-  )[] = []
+  private steps: { type: 'prepare' | 'parse', stepFn: StepFn, payload?: unknown }[] = []
 
   constructor(private routeOptions: RouteOptions) {
     this.routeOptions = routeOptions
@@ -113,13 +107,8 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
   prepare<TNewContext extends Record<string, unknown>>(
     prepareFn: (req: Request, ctx: TContext) => Promise<TNewContext | undefined | void>
   ): RouteBuilder<MergeContexts<TContext, TNewContext>, TAccumulatedPayloads> {
-    // this.prepareSteps.push(prepareFn as (req: Request, ctx: unknown) => Promise<unknown>)
-
-    this.steps.push({ type: 'prepare', prepareFn: prepareFn as (req: Request, ctx: unknown) => Promise<unknown> })
-
+    this.steps.push({ type: 'prepare', stepFn: prepareFn as StepFn })
     const newBuilder = new RouteBuilder<MergeContexts<TContext, TNewContext>, TAccumulatedPayloads>(this.routeOptions)
-    // newBuilder.prepareSteps = [...this.prepareSteps]
-    // newBuilder.parseSteps = [...this.parseSteps]
     newBuilder.steps = [...this.steps]
     return newBuilder
   }
@@ -132,7 +121,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
     this.steps.push({
       type: 'parse',
       payload,
-      parseFn: async (req: Request, ctx: unknown) => {
+      stepFn: async (req: Request, ctx: unknown) => {
         const parsedResults: Record<string, unknown> = {}
         const context = ctx as Record<string, unknown> & {
           _bodyCache?: unknown,
@@ -255,8 +244,6 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
 
     // Create new builder with merged parsed context
     const newBuilder = new RouteBuilder<ParseResult<TContext, TPayload>, AccumulatePayloads<TAccumulatedPayloads, TPayload>>(this.routeOptions)
-    // newBuilder.prepareSteps = [...this.prepareSteps]
-    // newBuilder.parseSteps = [...this.parseSteps]
     newBuilder.steps = [...this.steps]
 
     return newBuilder
@@ -267,8 +254,6 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
   ): EnhancedRouteHandler<TContext, TResponse, TAccumulatedPayloads> {
     const { onRequest, onResponse, onError, requestObject } = this.routeOptions
     const steps = this.steps
-    // const prepareSteps = this.prepareSteps
-    // const parseSteps = this.parseSteps
 
     async function routeHandler(...args: unknown[]): Promise<TResponse> {
       try {
@@ -300,7 +285,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
         for (const step of steps) {
           if (step.type === 'prepare') {
             try {
-              const result = await step.prepareFn(request, context)
+              const result = await step.stepFn(request, context)
               if (result && typeof result === 'object') {
                 context = { ...context, ...result }
               }
@@ -317,7 +302,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
             }
           } else if (step.type === 'parse') {
             try {
-              const result = await step.parseFn(request, context)
+              const result = await step.stepFn(request, context)
               if (result && typeof result === 'object') {
                 if (!context.parsed) {
                   context.parsed = {}
@@ -380,7 +365,6 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
         if (onError) {
           const response = await onError(error as Error)
           if (response instanceof Response) {
-            // {error: {message: string, code: string}}
             // TODO: fix type. don't infer return value from happy path's type if there's error. should we add `errorValue`?
             return response as unknown as TResponse
           }
@@ -399,7 +383,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
         for (const step of steps) {
           if (step.type === 'parse' && !context?.skipParse) {
             try {
-              const result = await step.parseFn(mockRequest, context)
+              const result = await step.stepFn(mockRequest, context)
               if (result && typeof result === 'object') {
                 if (!context.parsed) {
                   context.parsed = {}
@@ -427,7 +411,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
             }
           } else if (step.type === 'prepare' && !context?.skipPrepare) {
             try {
-              const result = await step.prepareFn(mockRequest, context)
+              const result = await step.stepFn(mockRequest, context)
               if (result && typeof result === 'object') {
                 // Override from invoke takes precedence over prepare step
                 context = { ...result, ...context }
