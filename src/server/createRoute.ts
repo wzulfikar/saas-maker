@@ -25,8 +25,8 @@ export class RouteError extends Error {
 
 // Enhanced route options with minimal framework integration
 type RouteOptions = {
-  onRequest?: (req: Request) => Promise<void>
-  onResponse?: (res: Response) => Promise<void>
+  onRequest?: (req: Request) => Promise<void> | Promise<Response>
+  onResponse?: (res: Response) => Promise<void> | Promise<Response>
   onError?: (err: Error) => Promise<void> | Promise<Response>
   requestObject?: (args: unknown) => Request
 }
@@ -282,7 +282,11 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
         }
 
         if (onRequest) {
-          await onRequest(request)
+          const maybeEarlyResponse = await onRequest(request)
+          // Short circuit if onRequest returns a response
+          if (maybeEarlyResponse instanceof Response) {
+            return maybeEarlyResponse as unknown as TResponse
+          }
         }
 
         // Build context by executing prepare steps
@@ -354,7 +358,10 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
               headers: { 'Content-Type': 'application/json' }
             })
           }
-          await onResponse(responseForHook)
+          const maybeCustomResponse = await onResponse(responseForHook)
+          if (maybeCustomResponse instanceof Response) {
+            return maybeCustomResponse as unknown as TResponse
+          }
         }
 
         return response
