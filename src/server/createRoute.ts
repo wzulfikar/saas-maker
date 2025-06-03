@@ -1,3 +1,8 @@
+export function isRouteError(error: any): error is RouteError {
+  return error instanceof RouteError ||
+    (error && error.name === 'RouteError' && 'errorCode' in error);
+}
+
 type RouteInfo = {
   name?: string
   steps: string[]
@@ -293,7 +298,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
                 context = { ...context, ...result }
               }
             } catch (error) {
-              routeBuilder.routeError = error instanceof RouteError
+              routeBuilder.routeError = isRouteError(error)
                 ? error
                 : new RouteError("Bad Request: Error when preparing request", {
                   errorCode: 'PREPARE_ERROR',
@@ -320,7 +325,8 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
                 context.parsed = parsedContext
               }
             } catch (error) {
-              routeBuilder.routeError = error instanceof RouteError
+              console.log('---- error:', error, error instanceof RouteError);
+              routeBuilder.routeError = isRouteError(error)
                 ? error
                 : new RouteError("Bad Request: Error when parsing request", {
                   errorCode: 'PARSE_ERROR',
@@ -395,7 +401,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
                 context.parsed = parsedContext
               }
             } catch (error) {
-              routeBuilder.routeError = error instanceof RouteError
+              routeBuilder.routeError = isRouteError(error)
                 ? error
                 : new RouteError("Bad Request: Error when parsing request", {
                   errorCode: 'PARSE_ERROR',
@@ -413,7 +419,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
                 context = { ...result, ...context }
               }
             } catch (error) {
-              routeBuilder.routeError = error instanceof RouteError
+              routeBuilder.routeError = isRouteError(error)
                 ? error
                 : new RouteError("Internal Server Error: Error in prepare step", {
                   errorCode: 'PREPARE_ERROR',
@@ -435,7 +441,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
         const response = await handlerFn(context as { request: Request } & TContext)
         return response
       } catch (error) {
-        routeBuilder.routeError = error instanceof RouteError
+        routeBuilder.routeError = isRouteError(error)
           ? error
           : new RouteError("Internal Server Error", {
             errorCode: 'HANDLER_ERROR',
