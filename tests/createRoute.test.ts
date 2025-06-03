@@ -982,7 +982,7 @@ describe("Stage 5: Parse Method Foundation", () => {
       const route = createRoute()
         .parse({
           auth: async (ctx) => {
-            const token = ctx.authHeader.replace('Bearer ', '')
+            const token = ctx.authHeader?.replace('Bearer ', '')
             if (token === 'valid-token') {
               return { userId: '123', role: 'admin' }
             }
@@ -1037,8 +1037,8 @@ describe("Stage 5: Parse Method Foundation", () => {
       const route = createRoute()
         .parse({
           auth: async (ctx) => {
-            type TestAuthHeaderIsString = Expect<Eq<typeof ctx.authHeader, string>>
-            return { token: ctx.authHeader.replace('Bearer ', '') }
+            type TestAuthHeaderIsString = Expect<Eq<typeof ctx.authHeader, string | null>>
+            return { token: ctx.authHeader?.replace('Bearer ', '') }
           },
           body: async (ctx) => {
             const parsed = ctx.body as { name: string }
@@ -1094,10 +1094,11 @@ describe("Stage 5: Parse Method Foundation", () => {
       }
     })
 
-    test("auth parsing requires authorization header", async () => {
+    test("auth parsing doesn't require authorization header", async () => {
       const route = createRoute()
         .parse({
           auth: async (ctx) => {
+            expect(ctx.authHeader).toBeNull()
             return { token: ctx.authHeader }
           },
         })
@@ -1106,17 +1107,7 @@ describe("Stage 5: Parse Method Foundation", () => {
         })
 
       const mockRequest = new Request('http://localhost/test')
-
-      try {
-        await route(mockRequest)
-        expect(true).toBe(false) // Should not reach here
-      } catch (error) {
-        expect(error instanceof RouteError).toBe(true)
-        const routeError = error as RouteError
-        expect(routeError.errorCode).toBe('PARSE_ERROR')
-        expect(routeError.message).toBe("Bad Request: Error parsing `auth`")
-        expect(routeError.errorMessage).toBe("Authorization header is required")
-      }
+      await route(mockRequest)
     })
 
     test("method validation error returns 405", async () => {
@@ -1235,7 +1226,7 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
             return { id: data.id }
           },
           auth: async (ctx) => {
-            return { token: ctx.authHeader.replace('Bearer ', '') }
+            return { token: ctx.authHeader?.replace('Bearer ', '') }
           },
           // customValidator: async (ctx) => {
           //   const url = new URL(req.url)
@@ -2173,7 +2164,6 @@ describe("Stage 9: Framework Integration & Invoke", () => {
         prepared: true
       })
 
-      console.log('result:', result);
       expect(result).toEqual({
         success: true,
         prepared: true,
@@ -2206,7 +2196,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       expect(executionOrder).toEqual(['prepare', 'parse', 'handle'])
     })
 
-    test("invoke with complete context override skips prepare/parse", async () => {
+    test("invoke with options to skip prepare and parse steps", async () => {
       const executionOrder: string[] = []
 
       const route = createRoute()
@@ -2231,7 +2221,9 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       const result = await route.invoke({
         customData: 'override',
         // @ts-expect-error body.custom is not valid payload
-        parsed: { body: { custom: 'data' } }
+        parsed: { body: { custom: 'data' } },
+        skipPrepare: true,
+        skipParse: true
       })
 
       expect(executionOrder).toEqual(['handle']) // Only handle called

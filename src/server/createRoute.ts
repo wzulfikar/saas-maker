@@ -25,9 +25,9 @@ export class RouteError extends Error {
 
 // Enhanced route options with minimal framework integration
 type RouteOptions = {
-  onRequest?: (req: Request) => Promise<void> | Promise<Response>
-  onResponse?: (res: Response) => Promise<void> | Promise<Response>
-  onError?: (err: Error) => Promise<void> | Promise<Response>
+  onRequest?: (req: Request) => Promise<void | Response>
+  onResponse?: (res: Response) => Promise<void | Response>
+  onError?: (err: Error) => Promise<void | Response>
   requestObject?: (...args: unknown[]) => Request
 }
 
@@ -42,7 +42,7 @@ type RouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "OPTIONS" | "HE
 type SingleParamParsePayload<TContext> = {
   path?: string
   method?: RouteMethod | readonly RouteMethod[]
-  auth?: (ctx: TContext & { authHeader: string }) => Promise<unknown>
+  auth?: (ctx: TContext & { authHeader: string | null }) => Promise<unknown>
   headers?: (ctx: TContext & { headers: Headers }) => Promise<unknown>
   cookies?: (ctx: TContext & { cookies: Record<string, string> }) => Promise<unknown>
   body?: (ctx: TContext & { body: Record<string, unknown> }) => Promise<unknown>
@@ -107,7 +107,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
   }
 
   prepare<TNewContext extends Record<string, unknown>>(
-    prepareFunction: (req: Request, ctx: TContext) => Promise<TNewContext | undefined>
+    prepareFunction: (req: Request, ctx: TContext) => Promise<TNewContext | undefined | void>
   ): RouteBuilder<MergeContexts<TContext, TNewContext>, TAccumulatedPayloads> {
     this.prepareSteps.push(prepareFunction as (req: Request, ctx: unknown) => Promise<unknown>)
     const newBuilder = new RouteBuilder<MergeContexts<TContext, TNewContext>, TAccumulatedPayloads>(this.routeOptions)
@@ -170,9 +170,6 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
               } else if (key === 'auth') {
                 // Parse auth header
                 const authHeader = req.headers.get('authorization')
-                if (!authHeader) {
-                  throw new Error("Authorization header is required")
-                }
                 enhancedContext = { ...(ctx as Record<string, unknown>), authHeader }
               } else if (key === 'headers') {
                 enhancedContext = { ...(ctx as Record<string, unknown>), headers: req.headers }
@@ -387,63 +384,59 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
     routeHandler.invoke = async (contextOverride?: Partial<TContext>): Promise<TResponse> => {
       try {
         const mockRequest = new Request('http://localhost/invoke')
-        const isCompleteOverride = contextOverride && 'parsed' in contextOverride
+        let context: Record<string, unknown> = { ...contextOverride }
 
-        if (isCompleteOverride) {
-          const fullContext = { ...contextOverride } as TContext
-          return await handlerFn(mockRequest, fullContext)
-        }
-
-        let context: Record<string, unknown> = {}
-        if (contextOverride) {
-          context = { ...contextOverride }
-        }
-
-        for (const prepareStep of prepareSteps) {
-          try {
-            const result = await prepareStep(mockRequest, context)
-            if (result && typeof result === 'object') {
-              context = { ...context, ...result }
+        if (!context?.skipPrepare) {
+          for (const prepareStep of prepareSteps) {
+            try {
+              const result = await prepareStep(mockRequest, context)
+              if (result && typeof result === 'object') {
+                // Override from invoke takes precedence over prepare step
+                context = { ...result, ...context }
+              }
+            } catch (error) {
+              if (error instanceof RouteError) {
+                throw error
+              }
+              throw new RouteError("Internal Server Error: Error in prepare step", {
+                errorCode: 'PREPARE_ERROR',
+                errorMessage: (error as Error).message,
+                httpStatus: 500,
+                cause: error as Error
+              })
             }
-          } catch (error) {
-            if (error instanceof RouteError) {
-              throw error
-            }
-            throw new RouteError("Internal Server Error: Error in prepare step", {
-              errorCode: 'PREPARE_ERROR',
-              errorMessage: (error as Error).message,
-              httpStatus: 500,
-              cause: error as Error
-            })
           }
         }
 
-        for (const parseStep of parseSteps) {
-          try {
-            const result = await parseStep.parseFn(mockRequest, context)
-            if (result && typeof result === 'object') {
-              if (!context.parsed) {
-                context.parsed = {}
-              }
-              const parsedContext = context.parsed as Record<string, unknown>
-              const newResults = result as Record<string, unknown>
+        if (!context?.skipParse) {
+          for (const parseStep of parseSteps) {
+            try {
+              const result = await parseStep.parseFn(mockRequest, context)
+              if (result && typeof result === 'object') {
+                if (!context.parsed) {
+                  context.parsed = {}
+                }
+                const parsedContext = context.parsed as Record<string, unknown>
+                const newResults = result as Record<string, unknown>
 
-              for (const [fieldName, fieldResult] of Object.entries(newResults)) {
-                // Last wins approach - simply overwrite
-                parsedContext[fieldName] = fieldResult
+                for (const [fieldName, fieldResult] of Object.entries(newResults)) {
+                  // Last wins approach - simply overwrite. Keep override from invoke if exists.
+                  if (contextOverride && 'parsed' in contextOverride && fieldName in (contextOverride as any)?.parsed) continue
+                  parsedContext[fieldName] = fieldResult
+                }
+                context.parsed = parsedContext
               }
-              context.parsed = parsedContext
+            } catch (error) {
+              if (error instanceof RouteError) {
+                throw error
+              }
+              throw new RouteError("Internal Server Error: Error in parse step", {
+                errorCode: 'PARSE_ERROR',
+                errorMessage: (error as Error).message,
+                httpStatus: 500,
+                cause: error as Error
+              })
             }
-          } catch (error) {
-            if (error instanceof RouteError) {
-              throw error
-            }
-            throw new RouteError("Internal Server Error: Error in parse step", {
-              errorCode: 'PARSE_ERROR',
-              errorMessage: (error as Error).message,
-              httpStatus: 500,
-              cause: error as Error
-            })
           }
         }
 
