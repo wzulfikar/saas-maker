@@ -66,24 +66,19 @@ type ExtractSingleParamResults<T> =
     M extends RouteMethod[] ? { method: M[number] } :
     M extends RouteMethod ? { method: M } :
     {} : {}) &
-  (T extends { path?: infer P } ? P extends string ? { path: { matched: P, params: Record<string, unknown> } } : {} : {}) &
-  // Handle custom fields by extracting all non-predefined function properties
-  {
-    [K in keyof T as K extends PredefinedParseFields
-    ? never
-    : T[K] extends (ctx: any) => Promise<any>
-    ? K
-    : never
-    ]: T[K] extends (ctx: any) => Promise<infer R> ? R : never
-  }
+  (T extends { path?: infer P } ? P extends string ? { path: { matched: P, params: Record<string, unknown> } } : {} : {})
 
-// Remove never fields from type
-type RemoveNever<T> = {
+/**
+ * Remove never fields from type
+ **/
+type ExcludeNever<T> = {
   [K in keyof T as T[K] extends never ? never : K]: T[K]
 }
 
-// "Last wins" type merger - correctly handles field-level replacement
-type LastWinsMerge<TExisting, TNew> = {
+/**
+ * "Last wins" type merger - correctly handles field-level replacement
+ **/
+type MergeContext<TExisting, TNew> = {
   [K in keyof TExisting | keyof TNew]: K extends keyof TNew
   ? TNew[K]
   : K extends keyof TExisting
@@ -93,8 +88,8 @@ type LastWinsMerge<TExisting, TNew> = {
 
 // Helper type for parse result merging
 type ParseResult<TContext, TPayload> = TContext extends { parsed: infer TExisting }
-  ? Omit<TContext, 'parsed'> & { parsed: LastWinsMerge<TExisting, RemoveNever<ExtractSingleParamResults<TPayload>>> }
-  : TContext & { parsed: RemoveNever<ExtractSingleParamResults<TPayload>> }
+  ? Omit<TContext, 'parsed'> & { parsed: MergeContext<TExisting, ExcludeNever<ExtractSingleParamResults<TPayload>>> }
+  : TContext & { parsed: ExcludeNever<ExtractSingleParamResults<TPayload>> }
 
 // Helper type for accumulating parse payloads
 type AccumulatePayloads<TExisting, TNew> = TExisting & TNew
