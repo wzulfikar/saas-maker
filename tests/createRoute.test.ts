@@ -2,6 +2,8 @@ import { describe, test, expect } from "bun:test"
 import { createRoute, RouteError } from "../src/server/createRoute"
 import type { Expect, Eq } from "../src/types-helper"
 
+const invokeMockRequest = new Request('http://localhost/invoke')
+
 const jsonResponse = (body: unknown, status = 200) => new Response(JSON.stringify(body), {
   status,
   headers: { 'Content-Type': 'application/json' }
@@ -70,7 +72,7 @@ describe("Stage 1: Foundation Types & RouteError", () => {
 
   describe("RouteBuilder", () => {
     test("handle simple route with empty context", async () => {
-      const POST = createRoute().handle(async (req, ctx) => {
+      const POST = createRoute().handle(async (ctx) => {
         // ctx should be empty object type
         return { ok: true }
       })
@@ -84,7 +86,7 @@ describe("Stage 1: Foundation Types & RouteError", () => {
     })
 
     test("handle route with custom response type", async () => {
-      const GET = createRoute().handle(async (req, ctx) => {
+      const GET = createRoute().handle(async (ctx) => {
         return {
           users: [{ id: 1, name: "John" }],
           total: 1
@@ -99,7 +101,7 @@ describe("Stage 1: Foundation Types & RouteError", () => {
     })
 
     test("throw error for prepare method (not implemented yet)", () => {
-      const builder = createRoute().prepare(async (req, ctx) => {
+      const builder = createRoute().prepare(async (ctx) => {
         return { role: "admin" }
       })
       expect(builder).toBeDefined()
@@ -120,9 +122,9 @@ describe("Stage 1: Foundation Types & RouteError", () => {
   describe("Type Safety", () => {
     test("maintain type safety in handle function", async () => {
       // This test verifies TypeScript compilation
-      const route = createRoute().handle(async (req, ctx) => {
+      const route = createRoute().handle(async (ctx) => {
         // ctx is properly typed as empty object
-        expect(ctx).toEqual({})
+        expect(ctx).toEqual({ request: invokeMockRequest })
         return { success: true, timestamp: Date.now() }
       })
 
@@ -159,7 +161,7 @@ describe("Stage 2: Basic Builder Pattern", () => {
           requestCalled = true
           expect(req instanceof Request).toBe(true)
         }
-      }).handle(async (req, ctx) => {
+      }).handle(async (ctx) => {
         expect(requestCalled).toBe(true)
         return { success: true }
       })
@@ -179,7 +181,7 @@ describe("Stage 2: Basic Builder Pattern", () => {
           expect(res instanceof Response).toBe(true)
           expect(res.status).toBe(200)
         }
-      }).handle(async (req, ctx) => {
+      }).handle(async (ctx) => {
         return { message: "hello" }
       })
 
@@ -190,14 +192,18 @@ describe("Stage 2: Basic Builder Pattern", () => {
 
     test("call onError hook when handler throws", async () => {
       let errorCalled = false
-      const testError = new Error("Test error")
+      const testError = new RouteError("Test error", {
+        errorCode: 'TEST_ERROR',
+        errorMessage: 'Test error',
+        httpStatus: 400
+      })
 
       const route = createRoute({
         onError: async (err) => {
           errorCalled = true
           expect(err).toBe(testError)
         }
-      }).handle(async (req, ctx) => {
+      }).handle(async (ctx) => {
         throw testError
       })
 
@@ -215,9 +221,9 @@ describe("Stage 2: Basic Builder Pattern", () => {
 
   describe("Request Object Mapping", () => {
     test("use default request object mapper", async () => {
-      const route = createRoute().handle(async (req, ctx) => {
-        expect(req instanceof Request).toBe(true)
-        return { url: req.url }
+      const route = createRoute().handle(async (ctx) => {
+        expect(ctx.request instanceof Request).toBe(true)
+        return { url: ctx.request.url }
       })
 
       const mockRequest = new Request('http://localhost/api/test')
@@ -232,9 +238,9 @@ describe("Stage 2: Basic Builder Pattern", () => {
           const wrapper = args as { req: Request }
           return wrapper.req
         }
-      }).handle(async (req, ctx) => {
-        expect(req instanceof Request).toBe(true)
-        return { method: req.method }
+      }).handle(async (ctx) => {
+        expect(ctx.request instanceof Request).toBe(true)
+        return { method: ctx.request.method }
       })
 
       const mockRequest = new Request('http://localhost/test', { method: 'POST' })
@@ -248,27 +254,27 @@ describe("Stage 2: Basic Builder Pattern", () => {
 
   describe("Invoke Method Enhanced", () => {
     test("invoke without context override", async () => {
-      const route = createRoute().handle(async (req, ctx) => {
+      const route = createRoute().handle(async (ctx) => {
         return { timestamp: Date.now(), ctx: ctx }
       })
 
       const result = await route.invoke()
       expect(typeof result.timestamp).toBe('number')
-      expect(result.ctx).toEqual({})
+      expect(result.ctx).toEqual({ request: invokeMockRequest })
     })
 
     test("invoke with context override", async () => {
-      const route = createRoute().handle(async (req, ctx) => {
+      const route = createRoute().handle(async (ctx) => {
         return { ctx }
       })
 
       // Use empty object for context override since TContext is EmptyContext
       const result = await route.invoke({})
-      expect(result.ctx).toEqual({})
+      expect(result.ctx).toEqual({ request: invokeMockRequest })
     })
 
     test("invoke wraps non-RouteError errors", async () => {
-      const route = createRoute().handle(async (req, ctx) => {
+      const route = createRoute().handle(async (ctx) => {
         throw new Error("Something went wrong")
       })
 
@@ -292,7 +298,7 @@ describe("Stage 2: Basic Builder Pattern", () => {
         httpStatus: 422
       })
 
-      const route = createRoute().handle(async (req, ctx) => {
+      const route = createRoute().handle(async (ctx) => {
         throw customRouteError
       })
 
@@ -311,7 +317,7 @@ describe("Stage 2: Basic Builder Pattern", () => {
         onRequest: async () => { hooksCalled++ },
         onResponse: async () => { hooksCalled++ },
         onError: async () => { hooksCalled++ }
-      }).handle(async (req, ctx) => {
+      }).handle(async (ctx) => {
         return { success: true }
       })
 
@@ -328,7 +334,7 @@ describe("Stage 3: Context Type System", () => {
       expect(builder).toBeDefined()
 
       // This test mainly validates TypeScript compilation
-      const route = builder.handle(async (req, ctx) => {
+      const route = builder.handle(async (ctx) => {
         // ctx should be typed as EmptyContext (Record<string, never>)
         // TypeScript should enforce this at compile time
         const keys = Object.keys(ctx)
@@ -341,7 +347,7 @@ describe("Stage 3: Context Type System", () => {
 
     test("prepare method returns new builder with merged context type", () => {
       const builder = createRoute()
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           // ctx is EmptyContext here
           expect(Object.keys(ctx)).toEqual([])
           return { role: "admin" as const }
@@ -350,7 +356,7 @@ describe("Stage 3: Context Type System", () => {
       expect(builder).toBeDefined()
 
       // The builder should now have the context type extended
-      const route = builder.handle(async (req, ctx) => {
+      const route = builder.handle(async (ctx) => {
         // ctx should be typed as { role: "admin" }
         // This validates TypeScript inference
         return { hasRole: 'role' in ctx }
@@ -361,15 +367,15 @@ describe("Stage 3: Context Type System", () => {
 
     test("multiple prepare calls merge context types", () => {
       const builder = createRoute()
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           return { role: "admin" as const }
         })
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           // ctx should now have { role: "admin" }
           return { userId: "123" }
         })
 
-      const route = builder.handle(async (req, ctx) => {
+      const route = builder.handle(async (ctx) => {
         // ctx should be typed as { role: "admin" } & { userId: string }
         return {
           hasRole: 'role' in ctx,
@@ -388,7 +394,7 @@ describe("Stage 3: Context Type System", () => {
           }
         })
 
-      const route = builder.handle(async (req, ctx) => {
+      const route = builder.handle(async (ctx) => {
         // ctx should be typed as { parsed: { body: { name: string } } }
         return {
           hasParsed: 'parsed' in ctx
@@ -411,7 +417,7 @@ describe("Stage 3: Context Type System", () => {
           }
         })
 
-      const route = builder.handle(async (req, ctx) => {
+      const route = builder.handle(async (ctx) => {
         // ctx should be typed as { parsed: { headers: { userAgent: string }, body: { name: string } } }
         return {
           hasParsed: 'parsed' in ctx
@@ -423,7 +429,7 @@ describe("Stage 3: Context Type System", () => {
 
     test("prepare and parse can be interleaved", () => {
       const builder = createRoute()
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           return { role: "admin" as const }
         })
         .parse({
@@ -432,12 +438,12 @@ describe("Stage 3: Context Type System", () => {
             return { userAgent: "test" }
           }
         })
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           // ctx should have { role: "admin", parsed: { headers: { userAgent: string } } }
           return { timestamp: Date.now() }
         })
 
-      const route = builder.handle(async (req, ctx) => {
+      const route = builder.handle(async (ctx) => {
         // ctx should be typed as { role: "admin", timestamp: number, parsed: { headers: { userAgent: string } } }
         return {
           hasRole: 'role' in ctx,
@@ -466,7 +472,7 @@ describe("Stage 3: Context Type System", () => {
           }
         })
 
-      const route = builder.handle(async (req, ctx) => {
+      const route = builder.handle(async (ctx) => {
         // ctx.parsed.body should be intersection of both validations
         // { name: string } & { name: string, age: number } = { name: string, age: number }
         return {
@@ -492,7 +498,7 @@ describe("Stage 3: Context Type System", () => {
             return { age: ctx.body.age as number, isValid: true }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           // Should have only the last parse result: { age, isValid }
           // email should NOT be present since it was overridden
 
@@ -527,7 +533,7 @@ describe("Stage 3: Context Type System", () => {
             return { ...ctx.parsed.body, age: data.age, isValid: true }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           // Should have merged results since we manually spread
           expect(ctx.parsed.body.email).toBe('test@example.com')
           expect(ctx.parsed.body.age).toBe(25)
@@ -545,33 +551,33 @@ describe("Stage 3: Context Type System", () => {
   })
 
   describe("Builder Immutability", () => {
-    test("prepare returns new builder instance", () => {
+    test("prepare returns same builder instance", () => {
       const builder1 = createRoute()
-      const builder2 = builder1.prepare(async (req, ctx) => {
+      const builder2 = builder1.prepare(async (ctx) => {
         return { role: "admin" }
       })
-      expect(builder1).not.toBe(builder2)
+      expect(builder1).toBe(builder2)
       expect(builder1).toBeDefined()
       expect(builder2).toBeDefined()
     })
 
-    test("parse returns new builder instance", () => {
+    test("parse returns same builder instance", () => {
       const builder1 = createRoute()
       const builder2 = builder1.parse({
         body: async (ctx) => ({ name: "test" })
       })
 
-      expect(builder1).not.toBe(builder2)
+      expect(builder1).toBe(builder2)
       expect(builder1).toBeDefined()
       expect(builder2).toBeDefined()
     })
 
     test("prepare and parse steps are copied to new builder", () => {
       const builder1 = createRoute()
-        .prepare(async (req, ctx) => ({ step1: true }))
+        .prepare(async (ctx) => ({ step1: true }))
 
       const builder2 = builder1
-        .prepare(async (req, ctx) => ({ step2: true }))
+        .prepare(async (ctx) => ({ step2: true }))
 
       const builder3 = builder2
         .parse({
@@ -588,11 +594,11 @@ describe("Stage 3: Context Type System", () => {
   describe("Context Override Type Safety", () => {
     test("invoke method accepts properly typed context", async () => {
       const route = createRoute()
-        .prepare(async (req, ctx) => ({ role: "admin" as const }))
+        .prepare(async (ctx) => ({ role: "admin" as const }))
         .parse({
           headers: async (ctx) => ({ userAgent: "test" })
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return {
             role: 'role' in ctx ? 'present' : 'missing',
             parsed: 'parsed' in ctx ? 'present' : 'missing'
@@ -617,7 +623,7 @@ describe("Stage 3: Context Type System", () => {
   })
 
   test("prepare method is implemented and working", () => {
-    const builder = createRoute().prepare(async (req, ctx) => {
+    const builder = createRoute().prepare(async (ctx) => {
       return { role: "admin" }
     })
 
@@ -639,14 +645,14 @@ describe("Stage 4: Prepare Method", () => {
   describe("Context Building", () => {
     test("execute single prepare step and build context", async () => {
       const route = createRoute()
-        .prepare(async (req, ctx) => {
-          expect(req instanceof Request).toBe(true)
-          expect(ctx).toEqual({})
+        .prepare(async (ctx) => {
+          expect(ctx.request instanceof Request).toBe(true)
+          expect(ctx).toEqual({ request: mockRequest })
           return { role: "admin", userId: "123" }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           // Context should be built from prepare step
-          expect(ctx).toEqual({ role: "admin", userId: "123" })
+          expect(ctx).toEqual({ request: mockRequest, role: "admin", userId: "123" })
           return { success: true }
         })
 
@@ -657,24 +663,26 @@ describe("Stage 4: Prepare Method", () => {
 
     test("execute multiple prepare steps and merge context", async () => {
       const route = createRoute()
-        .prepare(async (req, ctx) => {
-          expect(ctx).toEqual({})
+        .prepare(async (ctx) => {
+          expect(ctx).toEqual({ request: mockRequest })
           return { role: "admin" }
         })
-        .prepare(async (req, ctx) => {
-          expect(ctx).toEqual({ role: "admin" })
+        .prepare(async (ctx) => {
+          expect(ctx).toEqual({ request: mockRequest, role: "admin" })
           return { userId: "123", permissions: ["read", "write"] }
         })
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           expect(ctx).toEqual({
+            request: mockRequest,
             role: "admin",
             userId: "123",
-            permissions: ["read", "write"]
+            permissions: ["read", "write"],
           })
           return { timestamp: 1234567890 }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx).toEqual({
+            request: mockRequest,
             role: "admin",
             userId: "123",
             permissions: ["read", "write"],
@@ -690,18 +698,18 @@ describe("Stage 4: Prepare Method", () => {
 
     test("prepare step can return undefined without affecting context", async () => {
       const route = createRoute()
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           return { role: "admin" }
         })
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           // This prepare doesn't return anything
           return undefined
         })
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           return { userId: "123" }
         })
-        .handle(async (req, ctx) => {
-          expect(ctx).toEqual({ role: "admin", userId: "123" })
+        .handle(async (ctx) => {
+          expect(ctx).toEqual({ request: mockRequest, role: "admin", userId: "123" })
           return { success: true }
         })
 
@@ -714,10 +722,10 @@ describe("Stage 4: Prepare Method", () => {
   describe("Error Handling", () => {
     test("wrap prepare step errors in RouteError", async () => {
       const route = createRoute()
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           throw new Error("Unauthorized access")
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return { success: true }
         })
 
@@ -745,10 +753,10 @@ describe("Stage 4: Prepare Method", () => {
       })
 
       const route = createRoute()
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           throw customRouteError
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return { success: true }
         })
 
@@ -767,18 +775,18 @@ describe("Stage 4: Prepare Method", () => {
       let step3Called = false
 
       const route = createRoute()
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           return { step1: true }
         })
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           step2Called = true
           throw new Error("Step 2 failed")
         })
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           step3Called = true
           return { step3: true }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return { success: true }
         })
 
@@ -798,13 +806,13 @@ describe("Stage 4: Prepare Method", () => {
   describe("Invoke Method Context Building", () => {
     test("invoke without context override executes prepare steps", async () => {
       const route = createRoute()
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           return { role: "admin" }
         })
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           return { userId: "123" }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return {
             role: ctx.role,
             userId: ctx.userId
@@ -822,11 +830,11 @@ describe("Stage 4: Prepare Method", () => {
       let prepareCalled = false
 
       const route = createRoute()
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           prepareCalled = true
           return { role: "admin" }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return { ctx }
         })
 
@@ -838,15 +846,15 @@ describe("Stage 4: Prepare Method", () => {
       expect(prepareCalled).toBe(true)
       // Context should merge: custom field + prepare result
       // @ts-expect-error arg of .toEqual doesn't satisify result.ctx
-      expect(result.ctx).toEqual({ customField: "value", role: "admin" })
+      expect(result.ctx).toEqual({ request: invokeMockRequest, customField: "value", role: "admin" })
     })
 
     test("invoke wraps prepare errors differently for invoke", async () => {
       const route = createRoute()
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           throw new Error("Prepare failed")
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return { success: true }
         })
 
@@ -872,11 +880,11 @@ describe("Stage 4: Prepare Method", () => {
           executionOrder.push('onRequest')
         }
       })
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           executionOrder.push('prepare')
           return { role: "admin" }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           executionOrder.push('handle')
           return { success: true }
         })
@@ -899,7 +907,7 @@ describe("Stage 5: Parse Method Foundation", () => {
             return { userAgent }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.parsed.headers).toEqual({ userAgent: 'test-agent' })
           return { success: true }
         })
@@ -920,7 +928,7 @@ describe("Stage 5: Parse Method Foundation", () => {
             return { name: parsed.name, age: parsed.age }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.parsed.body).toEqual({ name: 'John', age: 30 })
           return { success: true }
         })
@@ -945,7 +953,7 @@ describe("Stage 5: Parse Method Foundation", () => {
             }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.parsed.query).toEqual({ search: 'test', page: 2 })
           return { success: true }
         })
@@ -966,7 +974,7 @@ describe("Stage 5: Parse Method Foundation", () => {
             }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.parsed.cookies).toEqual({ sessionId: '123', theme: 'dark' })
           return { success: true }
         })
@@ -989,7 +997,7 @@ describe("Stage 5: Parse Method Foundation", () => {
             throw new Error('Invalid token')
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.parsed.auth).toEqual({ userId: '123', role: 'admin' })
           return { success: true }
         })
@@ -1006,7 +1014,7 @@ describe("Stage 5: Parse Method Foundation", () => {
         .parse({
           method: 'POST'
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.parsed.method).toBe('POST')
           return { success: true }
         })
@@ -1021,7 +1029,7 @@ describe("Stage 5: Parse Method Foundation", () => {
         .parse({
           path: '/api/users'
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.parsed.path).toEqual({ matched: '/api/users', params: {} })
           return { success: true }
         })
@@ -1045,7 +1053,7 @@ describe("Stage 5: Parse Method Foundation", () => {
             return { name: parsed.name }
           },
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.parsed.auth.token).toBe('test-token')
           expect(ctx.parsed.body.name).toBe('test')
           return { success: true }
@@ -1072,7 +1080,7 @@ describe("Stage 5: Parse Method Foundation", () => {
             throw new Error("Invalid body format")
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return { success: true }
         })
 
@@ -1102,7 +1110,7 @@ describe("Stage 5: Parse Method Foundation", () => {
             return { token: ctx.authHeader }
           },
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return { success: true }
         })
 
@@ -1115,7 +1123,7 @@ describe("Stage 5: Parse Method Foundation", () => {
         .parse({
           method: 'POST'
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return { success: true }
         })
 
@@ -1138,7 +1146,7 @@ describe("Stage 5: Parse Method Foundation", () => {
         .parse({
           path: '/api/users'
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return { success: true }
         })
 
@@ -1172,7 +1180,7 @@ describe("Stage 5: Parse Method Foundation", () => {
             return { name: "parsed" }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return {
             prepared: ctx.prepared,
             timestamp: ctx.timestamp,
@@ -1205,7 +1213,7 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
             return { userAgent: userAgent || 'unknown' }
           },
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.parsed.headers.userAgent).toBe('test-browser')
           // expect(ctx.parsed.requestInfo.method).toBe('GET')
           return { success: true }
@@ -1233,7 +1241,7 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
           //   return { hasParams: url.searchParams.has('validate') }
           // }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.parsed.body.id).toBe(123)
           expect(ctx.parsed.auth.token).toBe('abc123')
           // expect(ctx.parsed.customValidator.hasParams).toBe(true)
@@ -1257,7 +1265,7 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
           method: 'POST',
           path: '/api/users'
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return { success: true }
         })
 
@@ -1295,7 +1303,7 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
             return { name: data.name }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return { success: true }
         })
 
@@ -1328,7 +1336,7 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
             return { rawText: data.text }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.parsed.body.rawText).toBe('plain text data')
           return { success: true }
         })
@@ -1350,7 +1358,7 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
             return { isEmpty: true }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.parsed.body.isEmpty).toBe(true)
           return { success: true }
         })
@@ -1373,7 +1381,7 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
             return { validCookies: Object.keys(ctx.cookies).length }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.parsed.cookies.validCookies).toBe(2) // Only valid cookies counted
           return { success: true }
         })
@@ -1393,7 +1401,7 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
             return { hasCookies: false }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.parsed.cookies.hasCookies).toBe(false)
           return { success: true }
         })
@@ -1410,7 +1418,7 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
         .parse({
           method: ['GET', 'POST']
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           type TestRouteMethod = Expect<Eq<typeof ctx.parsed.method, 'GET' | 'POST'>>
           return { method: ctx.parsed.method }
         })
@@ -1442,7 +1450,7 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
   describe("Integration with Context Building", () => {
     test("parse results integrate with prepare context", async () => {
       const route = createRoute()
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           return { requestId: 'req-123' }
         })
         .parse({
@@ -1459,7 +1467,7 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
             return { message: data.message }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.requestId).toBe('req-123')
           expect(ctx.parsed.auth.userId).toBe('user-456')
           expect(ctx.parsed.body.message).toBe('hello')
@@ -1495,7 +1503,7 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
             return { age: data.age, isValid: true }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           // Should have merged body results: { email, age, isValid }
           // @ts-expect-error email is not in ctx.parsed.body because it's been overridden
           expect(ctx.parsed.body.email).toBe(undefined)
@@ -1524,7 +1532,7 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
             return { token: 'second-token' } // This should override
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.parsed.auth.token).toBe('second-token')
           return { success: true }
         })
@@ -1540,7 +1548,7 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
   describe("Context Access in Later Parse Calls", () => {
     test("later parse calls have access to prepare context", async () => {
       const route = createRoute()
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           return { userId: 'user123' }
         })
         .parse({
@@ -1556,7 +1564,7 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
             return { userAgent: ctx.headers.get('user-agent') || 'unknown' }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.userId).toBe('user123')
           expect(ctx.parsed.body.step1).toBe('complete')
           expect(ctx.parsed.headers.userAgent).toBe('test-agent')
@@ -1590,7 +1598,7 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
             return { emailValid: true }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           // @ts-expect-error email is not in ctx.parsed.body because it's been overridden
           expect(ctx.parsed.body.email).toBe(undefined)
           expect(ctx.parsed.body.emailValid).toBe(true)
@@ -1619,7 +1627,7 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
             return { emailValid: true }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return { success: true }
         })
 
@@ -1650,7 +1658,7 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
             return { ...ctx.parsed.body, step2: 'body-enhanced' }
           },
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.parsed.body.step1).toBe('body-parsed')
           expect(ctx.parsed.body.step2).toBe('body-enhanced')
           return { success: true }
@@ -1668,7 +1676,7 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
   describe("Integration with Previous Stages", () => {
     test("type narrowing works with prepare context", async () => {
       const route = createRoute()
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           return { requestId: 'req-789' }
         })
         .parse({
@@ -1683,7 +1691,7 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
             return { ...ctx.parsed.auth, role: 'admin' }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.requestId).toBe('req-789')
           expect(ctx.parsed.auth.userId).toBe('user-456')
           expect(ctx.parsed.auth.role).toBe('admin')
@@ -1711,7 +1719,7 @@ describe("Stage 8: Request Lifecycle Integration", () => {
         onResponse: async (res) => {
           hookCalls.push('onResponse')
         }
-      }).handle(async (req, ctx) => {
+      }).handle(async (ctx) => {
         return { success: true }
       })
 
@@ -1754,7 +1762,7 @@ describe("Stage 8: Request Lifecycle Integration", () => {
         onRequest: async () => { executionOrder.push('onRequest') },
         onResponse: async () => { executionOrder.push('onResponse') }
       })
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           executionOrder.push('prepare')
           return { role: 'admin' }
         })
@@ -1764,7 +1772,7 @@ describe("Stage 8: Request Lifecycle Integration", () => {
             return { parsed: true }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           executionOrder.push('handle')
           return { success: true }
         })
@@ -1845,7 +1853,7 @@ describe("Stage 8: Request Lifecycle Integration", () => {
             return { userAgent: 'test' }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           executionOrder.push('handle')
           return { success: true }
         })
@@ -1870,7 +1878,7 @@ describe("Stage 8: Request Lifecycle Integration", () => {
             return { parsed: true }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           executionOrder.push('handle')
           return {
             success: true,
@@ -1884,7 +1892,7 @@ describe("Stage 8: Request Lifecycle Integration", () => {
 
       expect(executionOrder).toEqual(['prepare', 'parse', 'handle']) // All steps should be called
       // @ts-expect-error customContext doesn't satisfy invoke arg
-      expect(result.context).toEqual({ customField: 'value', role: 'admin', parsed: { body: { parsed: true } } })
+      expect(result.context).toEqual({ request: invokeMockRequest, body: {}, customField: 'value', role: 'admin', parsed: { body: { parsed: true } } })
     })
 
     test("invoke error handling works correctly", async () => {
@@ -1985,9 +1993,9 @@ describe("Stage 9: Framework Integration & Invoke", () => {
         requestObject: (args) => (Array.isArray(args) ? args : [args])[0] as Request
       })
         .prepare(async (req) => ({ framework: 'nextjs' }))
-        .handle(async (req, ctx) => {
-          expect(req.url).toBe('http://localhost:3000/api/test')
-          expect(req.method).toBe('POST')
+        .handle(async (ctx) => {
+          expect(ctx.request.url).toBe('http://localhost:3000/api/test')
+          expect(ctx.request.method).toBe('POST')
           expect(ctx.framework).toBe('nextjs')
           return { success: true }
         })
@@ -2012,9 +2020,9 @@ describe("Stage 9: Framework Integration & Invoke", () => {
         requestObject: (...args: unknown[]) => (args[0] as { req: Request }).req as Request
       })
         .prepare(async (req) => ({ framework: 'hono' }))
-        .handle(async (req, ctx) => {
-          expect(req.url).toBe('http://localhost/hono')
-          expect(req.method).toBe('GET')
+        .handle(async (ctx) => {
+          expect(ctx.request.url).toBe('http://localhost/hono')
+          expect(ctx.request.method).toBe('GET')
           expect(ctx.framework).toBe('hono')
           return { success: true, framework: 'hono' }
         })
@@ -2035,10 +2043,10 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       const route = createRoute({
         requestObject: (args) => (Array.isArray(args) ? args : [args])[0] as Request
       })
-        .prepare(async (req) => ({ platform: 'cloudflare' }))
-        .handle(async (req, ctx) => {
-          expect(req.url).toBe('http://worker.example.com/api')
-          expect(req.method).toBe('DELETE')
+        .prepare(async (ctx) => ({ platform: 'cloudflare' }))
+        .handle(async (ctx) => {
+          expect(ctx.request.url).toBe('http://worker.example.com/api')
+          expect(ctx.request.method).toBe('DELETE')
           expect(ctx.platform).toBe('cloudflare')
           return { success: true, platform: 'cloudflare' }
         })
@@ -2054,10 +2062,10 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       })
 
       const route = createRoute() // Uses default auto detection
-        .prepare(async (req) => ({ detected: 'auto' }))
-        .handle(async (req, ctx) => {
-          expect(req.url).toBe('http://localhost/auto')
-          expect(req.method).toBe('PATCH')
+        .prepare(async (ctx) => ({ detected: 'auto' }))
+        .handle(async (ctx) => {
+          expect(ctx.request.url).toBe('http://localhost/auto')
+          expect(ctx.request.method).toBe('PATCH')
           expect(ctx.detected).toBe('auto')
           return { success: true, detected: 'auto' }
         })
@@ -2071,7 +2079,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
     test("simple request object extraction", async () => {
       const route = createRoute()
         .prepare(async (req) => ({ created: 'simple' }))
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.created).toBe('simple')
           return { success: true }
         })
@@ -2099,10 +2107,10 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           throw new Error('Invalid Express request object')
         }
       })
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           return { created: 'express-style' }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.created).toBe('express-style')
           return { success: true }
         })
@@ -2126,7 +2134,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
         requestObject: (args) => args as Request
       })
         .prepare(async (req) => ({ runtime: 'minimal' }))
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           expect(ctx.runtime).toBe('minimal')
           return { success: true, runtime: 'minimal' }
         })
@@ -2140,7 +2148,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
   describe("Enhanced Invoke Method", () => {
     test("invoke with partial context override", async () => {
       const route = createRoute()
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           return { prepared: true, userId: 'default-user' }
         })
         .parse({
@@ -2148,7 +2156,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
             return { token: 'default-token' }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return {
             success: true,
             prepared: ctx.prepared,
@@ -2186,7 +2194,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
             return { parsed: true }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           executionOrder.push('handle')
           return { success: true }
         })
@@ -2210,7 +2218,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
             return { parsed: true }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           executionOrder.push('handle')
           return {
             success: true,
@@ -2235,7 +2243,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
     test("route handler returns user response directly", async () => {
       const route = createRoute()
         .prepare(async (req) => ({ prepared: true }))
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return {
             message: 'Hello World',
             prepared: ctx.prepared
@@ -2254,7 +2262,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
 
     test("route handler preserves user Response objects", async () => {
       const route = createRoute()
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           // User returns Response directly for full control
           return new Response(JSON.stringify({ custom: 'response' }), {
             status: 201,
@@ -2275,7 +2283,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
     test("invoke method returns JSON as-is", async () => {
       const route = createRoute()
         .prepare(async (req) => ({ prepared: true }))
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return {
             message: 'Hello from invoke',
             prepared: ctx.prepared
@@ -2300,7 +2308,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
             httpStatus: 422
           })
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return { success: true }
         })
 
@@ -2315,7 +2323,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
 
     test("error handling throws for unexpected errors", async () => {
       const route = createRoute()
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           throw new Error("Unexpected error")
         })
 
@@ -2336,7 +2344,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           throw new Error('Invalid Hono context object')
         }
       })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return { success: true }
         })
 
@@ -2365,7 +2373,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
             httpStatus: 418 // I'm a teapot
           })
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return { success: true }
         })
 
@@ -2392,7 +2400,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
         .prepare(async (req) => {
           throw new Error("Prepare error in invoke")
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return { success: true }
         })
 
@@ -2414,9 +2422,9 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       const nextjsRoute = createRoute({
         requestObject: (args) => (Array.isArray(args) ? args : [args])[0] as Request
       })
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           // Extract user from session/headers
-          const authHeader = req.headers.get('authorization')
+          const authHeader = ctx.request.headers.get('authorization')
           return {
             user: authHeader ? { id: 'user-123', token: authHeader } : null
           }
@@ -2428,7 +2436,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           },
           method: 'POST'
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           if (!ctx.user) {
             throw new RouteError("Unauthorized", {
               errorCode: 'UNAUTHORIZED',
@@ -2466,7 +2474,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       const cfRoute = createRoute({
         requestObject: (args) => (Array.isArray(args) ? args : [args])[0] as Request
       })
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           return {
             edge: true,
             region: 'us-east-1' // Could be extracted from cf-ray header
@@ -2480,7 +2488,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
             }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return {
             success: true,
             edge: ctx.edge,
@@ -2521,7 +2529,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           throw new Error('Invalid Express request object')
         }
       })
-        .prepare(async (req, ctx) => {
+        .prepare(async (ctx) => {
           // Could access req.session, req.user, etc.
           return { middleware: 'express' }
         })
@@ -2531,7 +2539,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
             return { validated: true, data: ctx.body }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return {
             message: 'Express route handled',
             middleware: ctx.middleware,
@@ -2568,7 +2576,7 @@ describe("Stage 10: Route Type Extraction", () => {
           method: 'POST',
           path: '/api/users' as const
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return {
             success: true,
             message: 'User created'
@@ -2598,7 +2606,7 @@ describe("Stage 10: Route Type Extraction", () => {
             }
           }
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return {}
         })
 
@@ -2625,7 +2633,7 @@ describe("Stage 10: Route Type Extraction", () => {
           },
           method: 'POST'
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return {
             user: ctx.parsed.body,
             pagination: ctx.parsed.query
@@ -2655,7 +2663,7 @@ describe("Stage 10: Route Type Extraction", () => {
     test("inferRouteType handles routes without parse fields", () => {
       const route = createRoute()
         .prepare(async (req) => ({ timestamp: Date.now() }))
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return {
             message: 'Simple route',
             timestamp: ctx.timestamp
@@ -2695,7 +2703,7 @@ describe("Stage 10: Route Type Extraction", () => {
           method: ['GET', 'POST'] as const,
           path: '/api/users/[id]'
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return {
             data: ctx.parsed.body,
             meta: {
@@ -2734,7 +2742,7 @@ describe("Stage 10: Route Type Extraction", () => {
           method: 'POST',
           path: '/api/users'
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return {
             id: 'user-123',
             ...ctx.parsed.body,
@@ -2753,7 +2761,7 @@ describe("Stage 10: Route Type Extraction", () => {
           method: 'GET',
           path: '/api/users/[id]'
         })
-        .handle(async (req, ctx) => {
+        .handle(async (ctx) => {
           return {
             users: [{ id: 'user-123', name: 'John', email: 'john@example.com' }],
             pagination: { page: ctx.parsed.query.page, total: 1 }
