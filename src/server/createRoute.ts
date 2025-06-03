@@ -374,6 +374,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
             return response as unknown as TResponse
           }
         }
+        // Let user handle the error manually
         throw error
       }
     }
