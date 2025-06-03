@@ -27,6 +27,7 @@ export class RouteError extends Error {
 type RouteOptions = {
   onRequest?: (req: Request) => Promise<void | Response>
   onResponse?: (res: Response) => Promise<void | Response>
+  // TODO: update tests then remove Error, throw RouteError instead
   onError?: (err: Error) => Promise<void | Response>
   requestObject?: (...args: unknown[]) => Request
 }
@@ -38,6 +39,10 @@ type MergeContexts<T, U> = T & U
 // HTTP methods supported
 type RouteMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "OPTIONS" | "HEAD"
 
+const PREDEFINED_PARSE_FIELDS = ['headers', 'body', 'query', 'cookies', 'auth', 'method', 'path'] as const
+
+type PredefinedParseFields = typeof PREDEFINED_PARSE_FIELDS[number]
+
 // Single-parameter parse payload with automatic literal type inference
 type SingleParamParsePayload<TContext> = {
   path?: string
@@ -47,7 +52,7 @@ type SingleParamParsePayload<TContext> = {
   cookies?: (ctx: TContext & { cookies: Record<string, string> }) => Promise<unknown>
   body?: (ctx: TContext & { body: Record<string, unknown> }) => Promise<unknown>
   query?: (ctx: TContext & { query: Record<string, string> }) => Promise<unknown>
-}
+};
 
 // Type to extract parse results from single-param payload with proper inference
 type ExtractSingleParamResults<T> =
@@ -64,7 +69,7 @@ type ExtractSingleParamResults<T> =
   (T extends { path?: infer P } ? P extends string ? { path: { matched: P, params: Record<string, unknown> } } : {} : {}) &
   // Handle custom fields by extracting all non-predefined function properties
   {
-    [K in keyof T as K extends 'body' | 'query' | 'auth' | 'headers' | 'cookies' | 'method' | 'path'
+    [K in keyof T as K extends PredefinedParseFields
     ? never
     : T[K] extends (ctx: any) => Promise<any>
     ? K
@@ -96,23 +101,31 @@ type AccumulatePayloads<TExisting, TNew> = TExisting & TNew
 
 // Enhanced RouteBuilder that tracks parse payloads for type extraction
 export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
-  private prepareSteps: Array<(req: Request, ctx: unknown) => Promise<unknown>> = []
-  private parseSteps: Array<{
-    payload: unknown
-    parseFn: (req: Request, ctx: unknown) => Promise<unknown>
-  }> = []
+  // private prepareSteps: Array<(req: Request, ctx: unknown) => Promise<unknown>> = []
+  // private parseSteps: Array<{
+  //   payload: unknown
+  //   parseFn: (req: Request, ctx: unknown) => Promise<unknown>
+  // }> = []
+  private steps: (
+    | { type: 'prepare', prepareFn: (req: Request, ctx: unknown) => Promise<unknown> }
+    | { type: 'parse', parseFn: (req: Request, ctx: unknown) => Promise<unknown>, payload: unknown }
+  )[] = []
 
   constructor(private routeOptions: RouteOptions) {
     this.routeOptions = routeOptions
   }
 
   prepare<TNewContext extends Record<string, unknown>>(
-    prepareFunction: (req: Request, ctx: TContext) => Promise<TNewContext | undefined | void>
+    prepareFn: (req: Request, ctx: TContext) => Promise<TNewContext | undefined | void>
   ): RouteBuilder<MergeContexts<TContext, TNewContext>, TAccumulatedPayloads> {
-    this.prepareSteps.push(prepareFunction as (req: Request, ctx: unknown) => Promise<unknown>)
+    // this.prepareSteps.push(prepareFn as (req: Request, ctx: unknown) => Promise<unknown>)
+
+    this.steps.push({ type: 'prepare', prepareFn: prepareFn as (req: Request, ctx: unknown) => Promise<unknown> })
+
     const newBuilder = new RouteBuilder<MergeContexts<TContext, TNewContext>, TAccumulatedPayloads>(this.routeOptions)
-    newBuilder.prepareSteps = [...this.prepareSteps]
-    newBuilder.parseSteps = [...this.parseSteps]
+    // newBuilder.prepareSteps = [...this.prepareSteps]
+    // newBuilder.parseSteps = [...this.parseSteps]
+    newBuilder.steps = [...this.steps]
     return newBuilder
   }
 
@@ -121,7 +134,8 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
     payload: TPayload
   ): RouteBuilder<ParseResult<TContext, TPayload>, AccumulatePayloads<TAccumulatedPayloads, TPayload>> {
     // Store the parse step for later execution
-    this.parseSteps.push({
+    this.steps.push({
+      type: 'parse',
       payload,
       parseFn: async (req: Request, ctx: unknown) => {
         const parsedResults: Record<string, unknown> = {}
@@ -130,14 +144,13 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
           _queryCache?: Record<string, string>
         }
 
-        const predefinedFields = ['headers', 'body', 'query', 'cookies', 'auth', 'method', 'path']
-
         for (const [key, value] of Object.entries(payload)) {
-          if (typeof value === 'function' && predefinedFields.includes(key)) {
+          const fieldToParse = key as PredefinedParseFields
+          if (typeof value === 'function' && PREDEFINED_PARSE_FIELDS.includes(fieldToParse)) {
             try {
               let enhancedContext: Record<string, unknown>
 
-              if (key === 'body') {
+              if (fieldToParse === 'body') {
                 // Parse and cache body data
                 let bodyData: Record<string, unknown>
                 if (context._bodyCache !== undefined) {
@@ -156,7 +169,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
                   context._bodyCache = bodyData
                 }
                 enhancedContext = { ...(ctx as Record<string, unknown>), body: bodyData }
-              } else if (key === 'query') {
+              } else if (fieldToParse === 'query') {
                 // Parse and cache query data
                 let queryData: Record<string, string>
                 if (context._queryCache !== undefined) {
@@ -167,13 +180,13 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
                   context._queryCache = queryData
                 }
                 enhancedContext = { ...(ctx as Record<string, unknown>), query: queryData }
-              } else if (key === 'auth') {
+              } else if (fieldToParse === 'auth') {
                 // Parse auth header
                 const authHeader = req.headers.get('authorization')
                 enhancedContext = { ...(ctx as Record<string, unknown>), authHeader }
-              } else if (key === 'headers') {
+              } else if (fieldToParse === 'headers') {
                 enhancedContext = { ...(ctx as Record<string, unknown>), headers: req.headers }
-              } else if (key === 'cookies') {
+              } else if (fieldToParse === 'cookies') {
                 // Parse cookies
                 const cookieHeader = req.headers.get('cookie') || ''
                 const cookies = Object.fromEntries(
@@ -247,8 +260,9 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
 
     // Create new builder with merged parsed context
     const newBuilder = new RouteBuilder<ParseResult<TContext, TPayload>, AccumulatePayloads<TAccumulatedPayloads, TPayload>>(this.routeOptions)
-    newBuilder.prepareSteps = [...this.prepareSteps]
-    newBuilder.parseSteps = [...this.parseSteps]
+    // newBuilder.prepareSteps = [...this.prepareSteps]
+    // newBuilder.parseSteps = [...this.parseSteps]
+    newBuilder.steps = [...this.steps]
 
     return newBuilder
   }
@@ -257,8 +271,9 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
     handlerFn: (req: Request, ctx: TContext) => Promise<TResponse>
   ): EnhancedRouteHandler<TContext, TResponse, TAccumulatedPayloads> {
     const { onRequest, onResponse, onError, requestObject } = this.routeOptions
-    const prepareSteps = this.prepareSteps
-    const parseSteps = this.parseSteps
+    const steps = this.steps
+    // const prepareSteps = this.prepareSteps
+    // const parseSteps = this.parseSteps
 
     async function routeHandler(...args: unknown[]): Promise<TResponse> {
       try {
@@ -285,53 +300,53 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
 
         // Build context by executing prepare steps
         let context: Record<string, unknown> = {}
+        let count = 0
 
-        for (const prepareStep of prepareSteps) {
-          try {
-            const result = await prepareStep(request, context)
-            if (result && typeof result === 'object') {
-              context = { ...context, ...result }
-            }
-          } catch (error) {
-            if (error instanceof RouteError) {
-              throw error
-            }
-            throw new RouteError("Bad Request: Error preparing request handler", {
-              errorCode: 'PREPARE_ERROR',
-              errorMessage: (error as Error).message,
-              httpStatus: 400,
-              cause: error as Error
-            })
-          }
-        }
-
-        // Execute parse steps with progressive type narrowing
-        for (const parseStep of parseSteps) {
-          try {
-            const result = await parseStep.parseFn(request, context)
-            if (result && typeof result === 'object') {
-              if (!context.parsed) {
-                context.parsed = {}
+        for (const step of steps) {
+          if (step.type === 'prepare') {
+            try {
+              const result = await step.prepareFn(request, context)
+              if (result && typeof result === 'object') {
+                context = { ...context, ...result }
               }
-              const parsedContext = context.parsed as Record<string, unknown>
-              const newResults = result as Record<string, unknown>
-
-              for (const [fieldName, fieldResult] of Object.entries(newResults)) {
-                // Last wins approach - simply overwrite
-                parsedContext[fieldName] = fieldResult
+            } catch (error) {
+              if (error instanceof RouteError) {
+                throw error
               }
-              context.parsed = parsedContext
+              throw new RouteError("Bad Request: Error preparing request handler", {
+                errorCode: 'PREPARE_ERROR',
+                errorMessage: (error as Error).message,
+                httpStatus: 400,
+                cause: error as Error
+              })
             }
-          } catch (error) {
-            if (error instanceof RouteError) {
-              throw error
+          } else if (step.type === 'parse') {
+            try {
+              const result = await step.parseFn(request, context)
+              if (result && typeof result === 'object') {
+                if (!context.parsed) {
+                  context.parsed = {}
+                }
+                const parsedContext = context.parsed as Record<string, unknown>
+                const newResults = result as Record<string, unknown>
+
+                for (const [fieldName, fieldResult] of Object.entries(newResults)) {
+                  // Last wins approach - simply overwrite
+                  parsedContext[fieldName] = fieldResult
+                }
+                context.parsed = parsedContext
+              }
+            } catch (error) {
+              if (error instanceof RouteError) {
+                throw error
+              }
+              throw new RouteError("Bad Request: Error parsing request", {
+                errorCode: 'PARSE_ERROR',
+                errorMessage: (error as Error).message,
+                httpStatus: 400,
+                cause: error as Error
+              })
             }
-            throw new RouteError("Bad Request: Error parsing request", {
-              errorCode: 'PARSE_ERROR',
-              errorMessage: (error as Error).message,
-              httpStatus: 400,
-              cause: error as Error
-            })
           }
         }
 
@@ -386,32 +401,10 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
         const mockRequest = new Request('http://localhost/invoke')
         let context: Record<string, unknown> = { ...contextOverride }
 
-        if (!context?.skipPrepare) {
-          for (const prepareStep of prepareSteps) {
+        for (const step of steps) {
+          if (step.type === 'parse' && !context?.skipParse) {
             try {
-              const result = await prepareStep(mockRequest, context)
-              if (result && typeof result === 'object') {
-                // Override from invoke takes precedence over prepare step
-                context = { ...result, ...context }
-              }
-            } catch (error) {
-              if (error instanceof RouteError) {
-                throw error
-              }
-              throw new RouteError("Internal Server Error: Error in prepare step", {
-                errorCode: 'PREPARE_ERROR',
-                errorMessage: (error as Error).message,
-                httpStatus: 500,
-                cause: error as Error
-              })
-            }
-          }
-        }
-
-        if (!context?.skipParse) {
-          for (const parseStep of parseSteps) {
-            try {
-              const result = await parseStep.parseFn(mockRequest, context)
+              const result = await step.parseFn(mockRequest, context)
               if (result && typeof result === 'object') {
                 if (!context.parsed) {
                   context.parsed = {}
@@ -432,6 +425,24 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
               }
               throw new RouteError("Internal Server Error: Error in parse step", {
                 errorCode: 'PARSE_ERROR',
+                errorMessage: (error as Error).message,
+                httpStatus: 500,
+                cause: error as Error
+              })
+            }
+          } else if (step.type === 'prepare' && !context?.skipPrepare) {
+            try {
+              const result = await step.prepareFn(mockRequest, context)
+              if (result && typeof result === 'object') {
+                // Override from invoke takes precedence over prepare step
+                context = { ...result, ...context }
+              }
+            } catch (error) {
+              if (error instanceof RouteError) {
+                throw error
+              }
+              throw new RouteError("Internal Server Error: Error in prepare step", {
+                errorCode: 'PREPARE_ERROR',
                 errorMessage: (error as Error).message,
                 httpStatus: 500,
                 cause: error as Error
