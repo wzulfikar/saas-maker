@@ -551,23 +551,23 @@ describe("Stage 3: Context Type System", () => {
   })
 
   describe("Builder Immutability", () => {
-    test("prepare returns same builder instance", () => {
+    test("prepare returns new builder instance", () => {
       const builder1 = createRoute()
       const builder2 = builder1.prepare(async (ctx) => {
         return { role: "admin" }
       })
-      expect(builder1).toBe(builder2)
+      expect(builder1).not.toBe(builder2)
       expect(builder1).toBeDefined()
       expect(builder2).toBeDefined()
     })
 
-    test("parse returns same builder instance", () => {
+    test("parse returns new builder instance", () => {
       const builder1 = createRoute()
       const builder2 = builder1.parse({
         body: async (ctx) => ({ name: "test" })
       })
 
-      expect(builder1).toBe(builder2)
+      expect(builder1).not.toBe(builder2)
       expect(builder1).toBeDefined()
       expect(builder2).toBeDefined()
     })

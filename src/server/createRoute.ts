@@ -137,9 +137,9 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
     prepareFn: (ctx: { request: Request } & TContext) => Promise<TNewContext | undefined | void>
   ) {
     this.steps.push({ type: 'prepare', stepFn: prepareFn as StepFn })
-    // const newBuilder = new RouteBuilder<MergeContexts<TContext, TNewContext>, TAccumulatedPayloads>(this.routeOptions)
-    // newBuilder.steps = [...this.steps]
-    return this as RouteBuilder<MergeContexts<TContext, TNewContext>, TAccumulatedPayloads>
+    const builder = new RouteBuilder({ ...this.routeOptions })
+    builder.steps = [...this.steps]
+    return builder as RouteBuilder<MergeContexts<TContext, TNewContext>, TAccumulatedPayloads>
   }
 
   // Parse method with proper overloads
@@ -255,7 +255,9 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
       }
     })
 
-    return this as RouteBuilder<ParseResult<TContext, TFields>, MergeParseFields<TAccumulatedPayloads, TFields>>
+    const builder = new RouteBuilder({ ...this.routeOptions })
+    builder.steps = [...this.steps]
+    return builder as RouteBuilder<ParseResult<TContext, TFields>, MergeParseFields<TAccumulatedPayloads, TFields>>
   }
 
   handle<TResponse>(
