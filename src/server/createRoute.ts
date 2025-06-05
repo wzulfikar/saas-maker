@@ -126,7 +126,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
   routeError?: RouteError
 
   constructor(private routeOptions: RouteOptions) {
-    this.routeOptions = routeOptions
+    this.routeOptions = routeOptions || {}
   }
 
   extend<TNewContext extends Context>(opts?: { name?: string }) {
