@@ -40,9 +40,9 @@ export class RouteError extends Error {
 // Enhanced route options with minimal framework integration
 type RouteOptions = {
   name?: string
-  onRequest?: (req: Request) => Promise<void | Response>
-  onResponse?: (res: Response) => Promise<void | Response>
-  onError?: (err: RouteError) => Promise<void | Response>
+  onRequest?: (req: Request) => Promise<void | Response> | void | Response
+  onResponse?: (res: Response) => Promise<void | Response> | void | Response
+  onError?: (err: RouteError) => Promise<void | Response> |void | Response
   requestObject?: (...args: unknown[]) => Request
 }
 
@@ -58,26 +58,32 @@ const PREDEFINED_PARSE_FIELDS = ['headers', 'body', 'query', 'cookies', 'auth', 
 
 type PredefinedParseFields = typeof PREDEFINED_PARSE_FIELDS[number]
 
-// Single-parameter parse payload with automatic literal type inference
+// Helper type to extract return type from both sync and async functions
+type ExtractFunctionResult<T> = 
+  T extends (ctx: any) => Promise<infer R> ? R :
+  T extends (ctx: any) => infer R ? R :
+  never
+
+// Parse fields with automatic literal type inference
 type ParseFields<TContext> = {
   path?: string
   method?: RouteMethod | readonly RouteMethod[]
-  auth?: (ctx: TContext & { request: Request, authHeader: string | null }) => Promise<unknown>
-  headers?: (ctx: TContext & { request: Request, headers: Headers }) => Promise<unknown>
-  cookies?: (ctx: TContext & { request: Request, cookies: Record<string, string> }) => Promise<unknown>
-  body?: (ctx: TContext & { request: Request, body: Record<string, unknown> }) => Promise<unknown>
-  query?: (ctx: TContext & { request: Request, query: Record<string, string> }) => Promise<unknown>
-  resource?: (ctx: TContext & { request: Request, query: Record<string, string>, body: Record<string, unknown> }) => Promise<unknown>
+  auth?: (ctx: TContext & { request: Request, authHeader: string | null }) => Promise<unknown> | unknown
+  headers?: (ctx: TContext & { request: Request, headers: Headers }) => Promise<unknown> | unknown
+  cookies?: (ctx: TContext & { request: Request, cookies: Record<string, string> }) => Promise<unknown> | unknown
+  body?: (ctx: TContext & { request: Request, body: Record<string, unknown> }) => Promise<unknown> | unknown
+  query?: (ctx: TContext & { request: Request, query: Record<string, string> }) => Promise<unknown> | unknown
+  resource?: (ctx: TContext & { request: Request, query: Record<string, string>, body: Record<string, unknown> }) => Promise<unknown> | unknown
 };
 
 /** Extract parse results from payload */
 type ExtractParseResult<T> =
-  (T extends { body?: (ctx: any) => Promise<infer B> } ? { body: B } : {}) &
-  (T extends { query?: (ctx: any) => Promise<infer Q> } ? { query: Q } : {}) &
-  (T extends { auth?: (ctx: any) => Promise<infer A> } ? { auth: A } : {}) &
-  (T extends { headers?: (ctx: any) => Promise<infer H> } ? { headers: H } : {}) &
-  (T extends { cookies?: (ctx: any) => Promise<infer C> } ? { cookies: C } : {}) &
-  (T extends { resource?: (ctx: any) => Promise<infer R> } ? { resource: R } : {}) &
+  (T extends { body?: infer F } ? F extends Function ? { body: ExtractFunctionResult<F> } : {} : {}) &
+  (T extends { query?: infer F } ? F extends Function ? { query: ExtractFunctionResult<F> } : {} : {}) &
+  (T extends { auth?: infer F } ? F extends Function ? { auth: ExtractFunctionResult<F> } : {} : {}) &
+  (T extends { headers?: infer F } ? F extends Function ? { headers: ExtractFunctionResult<F> } : {} : {}) &
+  (T extends { cookies?: infer F } ? F extends Function ? { cookies: ExtractFunctionResult<F> } : {} : {}) &
+  (T extends { resource?: infer F } ? F extends Function ? { resource: ExtractFunctionResult<F> } : {} : {}) &
   (T extends { method?: infer M } ?
     M extends readonly RouteMethod[] ? { method: M[number] } :
     M extends RouteMethod ? { method: M } :
@@ -134,7 +140,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
   }
 
   prepare<TNewContext extends Context>(
-    prepareFn: (ctx: { request: Request } & TContext) => Promise<TNewContext | undefined | void>
+    prepareFn: (ctx: { request: Request } & TContext) => Promise<TNewContext | undefined | void> | TNewContext | undefined | void
   ) {
     this.steps.push({ type: 'prepare', stepFn: prepareFn as StepFn })
     const builder = new RouteBuilder({ ...this.routeOptions })
@@ -261,7 +267,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
   }
 
   handle<TResponse>(
-    handlerFn: (ctx: { request: Request } & TContext) => Promise<TResponse>
+    handlerFn: (ctx: { request: Request } & TContext) => Promise<TResponse> | TResponse
   ): RouteHandler<TContext, TResponse, TAccumulatedPayloads> {
     const { onRequest, onResponse, onError, requestObject } = this.routeOptions
     const routeBuilder = this
@@ -341,11 +347,6 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
           routeBuilder.currentStep++
         }
 
-        // Clean context before passing to handler - remove internal cache properties
-        // const cleanContext = { ...context }
-        // delete cleanContext.body
-        // delete cleanContext.query
-
         const response = await handlerFn(context as { request: Request } & TContext)
         const wrappedResponse = response instanceof Response
           ? response
@@ -361,7 +362,6 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
           }
         }
 
-        // TODO: fix test
         return wrappedResponse as unknown as TResponse
       } catch (error) {
         if (onError) {
@@ -433,11 +433,6 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
           }
           routeBuilder.currentStep++
         }
-
-        // Clean context before passing to handler - remove internal cache properties
-        // const cleanContext = { ...context }
-        // delete cleanContext.body
-        // delete cleanContext.query
 
         const response = await handlerFn(context as { request: Request } & TContext)
         return response
@@ -526,8 +521,8 @@ type RouteTypeInfo<TContext, TResponse, TAccumulatedPayloads = {}> = {
   : string
   : string
   input: {
-    body: TAccumulatedPayloads extends { body: (ctx: any) => Promise<infer B> } ? B : undefined
-    query: TAccumulatedPayloads extends { query: (ctx: any) => Promise<infer Q> } ? Q : undefined
+    body: TAccumulatedPayloads extends { body: infer F } ? F extends Function ? ExtractFunctionResult<F> : undefined : undefined
+    query: TAccumulatedPayloads extends { query: infer F } ? F extends Function ? ExtractFunctionResult<F> : undefined : undefined
   }
   returnValue: TResponse
 } 

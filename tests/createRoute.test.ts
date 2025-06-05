@@ -100,20 +100,39 @@ describe("Stage 1: Foundation Types & RouteError", () => {
       })
     })
 
-    test("throw error for prepare method (not implemented yet)", () => {
+    test("throw error for prepare method", () => {
       const builder = createRoute().prepare(async (ctx) => {
         return { role: "admin" }
       })
       expect(builder).toBeDefined()
     })
 
-    test("throw error for parse method (not implemented yet)", () => {
+    test("throw error for parse method", () => {
       const builder = createRoute()
         .parse({
           body: async (ctx) => {
             type TestBodyIsNotAny = Expect<Eq<typeof ctx.body, Record<string, unknown>>>
             return { name: "test" }
           }
+        })
+      expect(builder).toBeDefined()
+    })
+
+    test("use parse without async", () => {
+      const builder = createRoute()
+        .prepare((ctx) => {
+          ctx.request satisfies Request;
+          return { prepared: true }
+        })
+        .parse({
+          body: (ctx) => {
+            ctx.prepared satisfies boolean;
+            return { name: "test" }
+          }
+        })
+        .handle((ctx) => {
+          ctx.parsed.body.name satisfies string;
+          return { name: ctx.parsed.body.name }
         })
       expect(builder).toBeDefined()
     })
@@ -460,13 +479,13 @@ describe("Stage 3: Context Type System", () => {
     test("multiple parse calls on same field should merge types", () => {
       const builder = createRoute()
         .parse({
-          body: async (ctx) => {
+          body: (ctx) => {
             // First validation - basic structure
             return { name: "test" as string }
           }
         })
         .parse({
-          body: async (ctx) => {
+          body: (ctx) => {
             // Second validation - type narrowing (e.g., email validation)
             return { name: "test@example.com" as string, age: 25 }
           }
