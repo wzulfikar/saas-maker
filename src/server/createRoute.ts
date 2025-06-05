@@ -42,7 +42,7 @@ type RouteOptions = {
   name?: string
   onRequest?: (req: Request) => Promise<void | Response> | void | Response
   onResponse?: (res: Response) => Promise<void | Response> | void | Response
-  onError?: (err: RouteError) => Promise<void | Response> |void | Response
+  onError?: (err: RouteError) => Promise<void | Response> | void | Response
   requestObject?: (...args: unknown[]) => Request
 }
 
@@ -59,7 +59,7 @@ const PREDEFINED_PARSE_FIELDS = ['headers', 'body', 'query', 'cookies', 'auth', 
 type PredefinedParseFields = typeof PREDEFINED_PARSE_FIELDS[number]
 
 // Helper type to extract return type from both sync and async functions
-type ExtractFunctionResult<T> = 
+type ExtractFunctionResult<T> =
   T extends (ctx: any) => Promise<infer R> ? R :
   T extends (ctx: any) => infer R ? R :
   never
@@ -121,7 +121,7 @@ type StepFn = (ctx: { request: Request } & Context) => Promise<unknown>
 // Enhanced RouteBuilder that tracks parse payloads for type extraction
 export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
   private steps: { type: 'prepare' | 'parse', stepFn: StepFn, payload?: unknown }[] = []
-  private currentStep: number = 0
+  private currentStep: Record<number, 'ok' | 'error' | ''> = {}
   extends: string[] = []
   routeError?: RouteError
 
@@ -142,9 +142,8 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
   prepare<TNewContext extends Context>(
     prepareFn: (ctx: { request: Request } & TContext) => Promise<TNewContext | undefined | void> | TNewContext | undefined | void
   ) {
-    this.steps.push({ type: 'prepare', stepFn: prepareFn as StepFn })
     const builder = new RouteBuilder({ ...this.routeOptions })
-    builder.steps = [...this.steps]
+    builder.steps = [...this.steps, { type: 'prepare', stepFn: prepareFn as StepFn }]
     return builder as RouteBuilder<MergeContexts<TContext, TNewContext>, TAccumulatedPayloads>
   }
 
@@ -152,57 +151,30 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
   parse<TFields extends ParseFields<TContext>>(
     fields: TFields
   ) {
-    function parseQuery(ctx: { request: Request, query?: Record<string, string> }) {
-      if (!ctx.query) {
-        const url = new URL(ctx.request.url)
-        ctx.query = Object.fromEntries(url.searchParams.entries())
-      }
-    }
-    async function parseBody(ctx: { request: Request, body?: Record<string, unknown> }) {
-      // Parse and cache body data. TODO: handle multipart/form-data, etc.
-      if (!ctx.body) {
-        const bodyText = await ctx.request.text()
-        if (bodyText.trim() === '') {
-          ctx.body = {}
-        } else {
-          try {
-            ctx.body = JSON.parse(bodyText) as Record<string, unknown>
-          } catch {
-            ctx.body = { text: bodyText }
-          }
-        }
-      }
-    }
-
-    // Store the parse step for later execution
-    this.steps.push({
+    const builder = new RouteBuilder({ ...this.routeOptions })
+    builder.steps = [...this.steps]
+    builder.steps.push({
       type: 'parse',
       payload: fields,
       stepFn: async (ctx) => {
         const parsedResults: Record<string, unknown> = {}
         const req = ctx.request
-
         for (const [key, value] of Object.entries(fields)) {
           const field = key as PredefinedParseFields
           if (typeof value === 'function' && PREDEFINED_PARSE_FIELDS.includes(field)) {
             try {
-              let enhancedContext: Record<string, unknown>
+              let newCtx: Record<string, unknown>
               if (field === 'query') {
-                parseQuery(ctx)
-                enhancedContext = { ...ctx }
+                newCtx = parseQuery(ctx)
               } else if (field === 'body') {
-                await parseBody(ctx)
-                enhancedContext = { ...ctx }
+                newCtx = await parseBody(ctx)
               } else if (field === 'resource') {
-                parseQuery(ctx)
-                await parseBody(ctx)
-                enhancedContext = { ...ctx }
+                newCtx = await parseBody(parseQuery(ctx))
               } else if (field === 'auth') {
                 // Parse auth header
-                const authHeader = req.headers.get('authorization')
-                enhancedContext = { ...ctx, authHeader }
+                newCtx = { ...ctx, authHeader: req.headers.get('authorization') }
               } else if (field === 'headers') {
-                enhancedContext = { ...ctx, headers: req.headers }
+                newCtx = { ...ctx, headers: req.headers }
               } else if (field === 'cookies') {
                 // Parse cookies
                 const cookieHeader = req.headers.get('cookie') || ''
@@ -212,12 +184,12 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
                     .filter(([key, value]) => key && value !== undefined && key.length > 0)
                     .map(([key, value]) => [key, value || ''])
                 )
-                enhancedContext = { ...ctx, cookies }
+                newCtx = { ...ctx, cookies }
               } else {
-                enhancedContext = { ...ctx }
+                newCtx = { ...ctx }
               }
 
-              const result = await (value as (ctx: unknown) => Promise<unknown>)(enhancedContext)
+              const result = await (value as (ctx: unknown) => Promise<unknown>)(newCtx)
               parsedResults[key] = result
             } catch (error) {
               throw new RouteError(`Bad Request: Error parsing \`${key}\``, {
@@ -260,9 +232,6 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
         return parsedResults
       }
     })
-
-    const builder = new RouteBuilder({ ...this.routeOptions })
-    builder.steps = [...this.steps]
     return builder as RouteBuilder<ParseResult<TContext, TFields>, MergeParseFields<TAccumulatedPayloads, TFields>>
   }
 
@@ -271,7 +240,6 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
   ): RouteHandler<TContext, TResponse, TAccumulatedPayloads> {
     const { onRequest, onResponse, onError, requestObject } = this.routeOptions
     const routeBuilder = this
-
     async function routeHandler(...args: unknown[]): Promise<TResponse> {
       try {
         let request
@@ -297,8 +265,10 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
 
         // Build context by executing prepare steps
         let context: { request: Request } & Context = { request }
+        let stepCounter = 0
 
         for (const step of routeBuilder.steps) {
+          routeBuilder.currentStep[stepCounter] = ''
           if (step.type === 'prepare') {
             try {
               const result = await step.stepFn(context)
@@ -306,6 +276,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
                 context = { ...context, ...result }
               }
             } catch (error) {
+              routeBuilder.currentStep[stepCounter] = 'error'
               routeBuilder.routeError = isRouteError(error)
                 ? error
                 : new RouteError("Bad Request: Error when preparing request", {
@@ -333,6 +304,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
                 context.parsed = parsedContext
               }
             } catch (error) {
+              routeBuilder.currentStep[stepCounter] = 'error'
               routeBuilder.routeError = isRouteError(error)
                 ? error
                 : new RouteError("Bad Request: Error when parsing request", {
@@ -344,7 +316,8 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
               throw routeBuilder.routeError
             }
           }
-          routeBuilder.currentStep++
+          routeBuilder.currentStep[stepCounter] = 'ok'
+          stepCounter++
         }
 
         const response = await handlerFn(context as { request: Request } & TContext)
@@ -382,8 +355,9 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
       try {
         const mockRequest = new Request('http://localhost/invoke')
         let context: { request: Request } & Context = { request: mockRequest, ...contextOverride }
-
+        let stepCounter = 0
         for (const step of routeBuilder.steps) {
+          routeBuilder.currentStep[stepCounter] = ''
           if (step.type === 'parse' && !context?.skipParse) {
             try {
               const result = await step.stepFn(context)
@@ -402,6 +376,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
                 context.parsed = parsedContext
               }
             } catch (error) {
+              routeBuilder.currentStep[stepCounter] = 'error'
               routeBuilder.routeError = isRouteError(error)
                 ? error
                 : new RouteError("Bad Request: Error when parsing request", {
@@ -420,6 +395,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
                 context = { ...result, ...context }
               }
             } catch (error) {
+              routeBuilder.currentStep[stepCounter] = 'error'
               routeBuilder.routeError = isRouteError(error)
                 ? error
                 : new RouteError("Internal Server Error: Error in prepare step", {
@@ -431,7 +407,8 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
               throw routeBuilder.routeError
             }
           }
-          routeBuilder.currentStep++
+          routeBuilder.currentStep[stepCounter] = 'ok'
+          stepCounter++
         }
 
         const response = await handlerFn(context as { request: Request } & TContext)
@@ -462,7 +439,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
   }
 
   getRouteInfo() {
-    const steps = this.steps.map((step, i) => `${step.type}${i < this.currentStep ? ' (ok)' : i === this.currentStep ? ' (error)' : ''}`)
+    const steps = this.steps.map((step) => `${step.type}${this.currentStep ? ' (${this.currentStep})' : ''}`)
     return {
       name: this.routeOptions.name,
       steps: steps,
@@ -525,4 +502,31 @@ type RouteTypeInfo<TContext, TResponse, TAccumulatedPayloads = {}> = {
     query: TAccumulatedPayloads extends { query: infer F } ? F extends Function ? ExtractFunctionResult<F> : undefined : undefined
   }
   returnValue: TResponse
-} 
+}
+
+// createRoute helpers
+
+function parseQuery(ctx: { request: Request, query?: Record<string, string> }) {
+  if (!ctx.query) {
+    const url = new URL(ctx.request.url)
+    ctx.query = Object.fromEntries(url.searchParams.entries())
+  }
+  return ctx
+}
+
+async function parseBody(ctx: { request: Request, body?: Record<string, unknown> }) {
+  // Parse and cache body data. TODO: handle multipart/form-data, etc.
+  if (!ctx.body) {
+    const bodyText = await ctx.request.text()
+    if (bodyText.trim() === '') {
+      ctx.body = {}
+    } else {
+      try {
+        ctx.body = JSON.parse(bodyText) as Record<string, unknown>
+      } catch {
+        ctx.body = { text: bodyText }
+      }
+    }
+  }
+  return ctx
+}
