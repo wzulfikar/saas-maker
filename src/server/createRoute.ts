@@ -73,7 +73,7 @@ type ParseFields<TContext> = {
   cookies?: (ctx: TContext & { request: Request, cookies: Record<string, string> }) => Promise<unknown> | unknown
   body?: (ctx: TContext & { request: Request, body: Record<string, unknown> }) => Promise<unknown> | unknown
   query?: (ctx: TContext & { request: Request, query: Record<string, string> }) => Promise<unknown> | unknown
-  resource?: (ctx: TContext & { request: Request, query: Record<string, string>, body: Record<string, unknown> }) => Promise<unknown> | unknown
+  resource?: (ctx: TContext & { request: Request }) => Promise<unknown> | unknown
 };
 
 /** Extract parse results from payload */
@@ -169,22 +169,13 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
               } else if (field === 'body') {
                 newCtx = await parseBody(ctx)
               } else if (field === 'resource') {
-                newCtx = await parseBody(parseQuery(ctx))
+                newCtx = { ...ctx }
               } else if (field === 'auth') {
-                // Parse auth header
                 newCtx = { ...ctx, authHeader: req.headers.get('authorization') }
               } else if (field === 'headers') {
                 newCtx = { ...ctx, headers: req.headers }
               } else if (field === 'cookies') {
-                // Parse cookies
-                const cookieHeader = req.headers.get('cookie') || ''
-                const cookies = Object.fromEntries(
-                  cookieHeader.split(';')
-                    .map(c => c.trim().split('='))
-                    .filter(([key, value]) => key && value !== undefined && key.length > 0)
-                    .map(([key, value]) => [key, value || ''])
-                )
-                newCtx = { ...ctx, cookies }
+                newCtx = parseCookies(ctx)
               } else {
                 newCtx = { ...ctx }
               }
@@ -532,4 +523,16 @@ async function parseBody(ctx: { request: Request, body?: Record<string, unknown>
     }
   }
   return ctx
+}
+
+function parseCookies(ctx: { request: Request }) {
+  const cookieHeader = ctx.request.headers.get('cookie')
+  if (!cookieHeader) return { ...ctx, cookies: {} }
+  const cookies = Object.fromEntries(
+    cookieHeader.split(';')
+      .map(c => c.trim().split('='))
+      .filter(([key, value]) => key && value !== undefined && key.length > 0)
+      .map(([key, value]) => [key, value || ''])
+  )
+  return { ...ctx, cookies }
 }
