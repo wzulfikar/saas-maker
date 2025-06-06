@@ -5,8 +5,8 @@ export function isRouteError(error: any): error is RouteError {
 
 type RouteInfo = {
   name?: string
-  steps: string[]
   extends: string[]
+  steps: string[]
 }
 
 // RouteError class for structured error handling
@@ -120,22 +120,26 @@ type StepFn = (ctx: { request: Request } & Context) => Promise<unknown>
 
 // Enhanced RouteBuilder that tracks parse payloads for type extraction
 export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
-  private steps: ({ type: 'prepare' | 'parse', stepFn: StepFn, payload?: unknown } | { type: 'handle' })[] = []
+  private steps: (
+    | { type: 'prepare' | 'parse', stepFn: StepFn, payload?: unknown }
+    | { type: 'extend', payload: { name: string } }
+    | { type: 'handle' }
+  )[] = []
   private currentStep: Record<number, 'ok' | 'error' | ''> = {}
-  extends: string[] = []
-  routeError?: RouteError
+  private extends: string[] = []
+  private routeError?: RouteError
 
   constructor(private routeOptions: RouteOptions) {
     this.routeOptions = routeOptions || {}
   }
 
-  extend<TNewContext extends Context>(opts?: { name?: string }) {
+  extend<TNewContext extends Context>(opts: { name: string }) {
     const extendBuilder = new RouteBuilder<MergeContexts<TContext, TNewContext>, TAccumulatedPayloads>({
       ...this.routeOptions,
       ...opts,
     })
-    extendBuilder.steps = [...this.steps]
-    extendBuilder.extends = [...this.extends, this.routeOptions.name || '(no name)']
+    extendBuilder.steps = [...this.steps, { type: 'extend', payload: { name: opts.name } }]
+    extendBuilder.extends = this.routeOptions.name ? [...this.extends, this.routeOptions.name] : [...this.extends]
     return extendBuilder
   }
 
@@ -144,6 +148,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
   ) {
     const builder = new RouteBuilder({ ...this.routeOptions })
     builder.steps = [...this.steps, { type: 'prepare', stepFn: prepareFn as StepFn }]
+    builder.extends = [...this.extends]
     return builder as RouteBuilder<MergeContexts<TContext, TNewContext>, TAccumulatedPayloads>
   }
 
@@ -153,6 +158,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
   ) {
     const builder = new RouteBuilder({ ...this.routeOptions })
     builder.steps = [...this.steps]
+    builder.extends = [...this.extends]
     builder.steps.push({
       type: 'parse',
       payload: fields,
@@ -429,15 +435,24 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
     }
 
     routeHandler.inferRouteType = {} as RouteTypeInfo<TContext, TResponse, TAccumulatedPayloads>
+
+    routeHandler.getRouteInfo = () => routeBuilder.getRouteInfo()
+
     return routeHandler as RouteHandler<TContext, TResponse, TAccumulatedPayloads>
   }
 
   getRouteInfo() {
-    const steps = this.steps.map((step, i) => `${step.type}${this.currentStep[i] ? ` (${this.currentStep[i]})` : ''}`)
+    const steps = [
+      '→ createRoute',
+      ...this.steps.map((step, i) => {
+        if (step.type === 'extend') return `→ ${step.payload.name}`
+        return `${step.type}${this.currentStep[i] ? ` (${this.currentStep[i]})` : ''}`
+      })
+    ]
     return {
       name: this.routeOptions.name,
+      extends: this.extends,
       steps: steps,
-      extends: this.extends
     }
   }
 }
@@ -450,6 +465,7 @@ export const createRoute = (routeOptions: RouteOptions = {}) => {
 // Enhanced route handler interface
 interface RouteHandler<TContext, TResponse, TAccumulatedPayloads = {}> {
   (...args: unknown[]): Promise<TResponse>
+  getRouteInfo(): RouteInfo
   invoke(contextOverride?: Partial<TContext>): Promise<TResponse>
   inferRouteType: RouteTypeInfo<TContext, TResponse, TAccumulatedPayloads>
 }

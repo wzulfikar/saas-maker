@@ -2806,3 +2806,25 @@ describe("Stage 10: Route Type Extraction", () => {
     })
   })
 })
+
+describe('getRouteInfo', () => {
+  test('getRouteInfo returns the route info', () => {
+    const route = createRoute()
+      .prepare(async (req) => ({ timestamp: Date.now() }))
+      .parse({
+        body: (ctx) => ({ name: ctx.body.name as string })
+      })
+      .extend({ name: 'userRoute' })
+      .parse({
+        auth: (ctx) => ({ id: 123 })
+      })
+      .extend({ name: 'apiRoute' })
+      .handle((ctx) => ({ name: ctx.parsed.body.name }))
+
+    expect(route.getRouteInfo()).toEqual({
+      name: "apiRoute",
+      extends: ["userRoute"],
+      steps: ["→ createRoute", "prepare", "parse", "→ userRoute", "parse", "→ apiRoute", "handle"],
+    })
+  })
+})
