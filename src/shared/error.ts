@@ -53,7 +53,7 @@ export type ErrorInfo = {
  * Get the error info from an AppError. Returns null if the error is not an AppError.
  */
 export const getErrorInfo = (error: any): ErrorInfo | null => {
-  if (error.name === 'AppError' || error instanceof AppError) {
+  if (error && (error.name === 'AppError' || error instanceof AppError)) {
     return {
       code: error.errorCode,
       message: error.message,

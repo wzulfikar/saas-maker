@@ -120,7 +120,7 @@ type StepFn = (ctx: { request: Request } & Context) => Promise<unknown>
 
 // Enhanced RouteBuilder that tracks parse payloads for type extraction
 export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
-  private steps: { type: 'prepare' | 'parse', stepFn: StepFn, payload?: unknown }[] = []
+  private steps: ({ type: 'prepare' | 'parse', stepFn: StepFn, payload?: unknown } | { type: 'handle' })[] = []
   private currentStep: Record<number, 'ok' | 'error' | ''> = {}
   extends: string[] = []
   routeError?: RouteError
@@ -240,6 +240,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
   ): RouteHandler<TContext, TResponse, TAccumulatedPayloads> {
     const { onRequest, onResponse, onError, requestObject } = this.routeOptions
     const routeBuilder = this
+    routeBuilder.steps.push({ type: 'handle' })
     async function routeHandler(...args: unknown[]): Promise<TResponse> {
       try {
         let request
@@ -247,6 +248,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
           request = requestObject ? requestObject(...args) : args[0] instanceof Request ? args[0] as Request : null
           if (!request) throw new Error('Invalid request object')
         } catch (error) {
+          routeBuilder.currentStep[routeBuilder.steps.length - 1] = 'error'
           throw new RouteError("Bad Request: Invalid request object", {
             errorCode: 'REQUEST_MAPPING_ERROR',
             errorMessage: `Failed to extract Request object: ${(error as Error).message}`,
@@ -268,7 +270,6 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
         let stepCounter = 0
 
         for (const step of routeBuilder.steps) {
-          routeBuilder.currentStep[stepCounter] = ''
           if (step.type === 'prepare') {
             try {
               const result = await step.stepFn(context)
@@ -331,12 +332,15 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
         if (onResponse) {
           const customResponse = await onResponse(wrappedResponse)
           if (customResponse instanceof Response) {
+            routeBuilder.currentStep[routeBuilder.steps.length - 1] = 'ok'
             return customResponse as unknown as TResponse
           }
         }
 
+        routeBuilder.currentStep[routeBuilder.steps.length - 1] = 'ok'
         return wrappedResponse as unknown as TResponse
       } catch (error) {
+        routeBuilder.currentStep[routeBuilder.steps.length - 1] = 'error'
         if (onError) {
           const err = error as RouteError
           (err as any).routeInfo = routeBuilder.getRouteInfo()
@@ -357,7 +361,6 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
         let context: { request: Request } & Context = { request: mockRequest, ...contextOverride }
         let stepCounter = 0
         for (const step of routeBuilder.steps) {
-          routeBuilder.currentStep[stepCounter] = ''
           if (step.type === 'parse' && !context?.skipParse) {
             try {
               const result = await step.stepFn(context)
@@ -439,7 +442,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
   }
 
   getRouteInfo() {
-    const steps = this.steps.map((step) => `${step.type}${this.currentStep ? ' (${this.currentStep})' : ''}`)
+    const steps = this.steps.map((step, i) => `${step.type}${this.currentStep[i] ? ` (${this.currentStep[i]})` : ''}`)
     return {
       name: this.routeOptions.name,
       steps: steps,
