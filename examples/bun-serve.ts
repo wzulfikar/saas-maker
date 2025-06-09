@@ -1,7 +1,5 @@
 import { createRoute, json } from "../src/server"
 
-const PORT = process.env.PORT || 1234
-
 /**
 Usage:
 bun --hot examples/bun-serve.ts
