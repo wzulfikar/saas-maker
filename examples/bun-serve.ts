@@ -1,17 +1,17 @@
-import { createRoute } from "../src/server/createRoute"
+import { createRoute, json } from "../src/server"
 
 const PORT = process.env.PORT || 1234
 
 /**
 Usage:
-bun examples/bun-serve.ts
+bun --hot examples/bun-serve.ts
 */
 
 Bun.serve({
   port: 1234,
   routes: {
     "/": createRoute().handle(async (ctx) => {
-      return new Response("Hello, world!")
+      return json({ ok: false })
     })
   },
 })
