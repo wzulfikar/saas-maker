@@ -6,8 +6,10 @@
       "devDependencies": {
         "@types/bun": "^1.2.12",
         "@typescript/native-preview": "^7.0.0-dev.20250522.2",
+        "arktype": "^2.1.20",
         "lefthook": "^1.11.13",
         "typescript": "^5.8.3",
+        "zod": "^3.25.56",
       },
       "peerDependencies": {
         "@bugsnag/js": "^8.2.0",
@@ -28,6 +30,10 @@
     },
   },
   "packages": {
+    "@ark/schema": ["@ark/schema@0.46.0", "", { "dependencies": { "@ark/util": "0.46.0" } }, "sha512-c2UQdKgP2eqqDArfBqQIJppxJHvNNXuQPeuSPlDML4rjw+f1cu0qAlzOG4b8ujgm9ctIDWwhpyw6gjG5ledIVQ=="],
+
+    "@ark/util": ["@ark/util@0.46.0", "", {}, "sha512-JPy/NGWn/lvf1WmGCPw2VGpBg5utZraE84I7wli18EDF3p3zc/e9WolT35tINeZO3l7C77SjqRJeAUoT0CvMRg=="],
+
     "@bugsnag/browser": ["@bugsnag/browser@8.2.0", "", { "dependencies": { "@bugsnag/core": "^8.2.0" } }, "sha512-C4BfE3eVsjOAqoXbdrPXfKbgp/hz2H7mKBU0p11Jf9uz+5gUCfZK+39JLrQKvRXwqoDcTlBSfz9Xz5kXLyHg2Q=="],
 
     "@bugsnag/core": ["@bugsnag/core@8.2.0", "", { "dependencies": { "@bugsnag/cuid": "^3.0.0", "@bugsnag/safe-json-stringify": "^6.0.0", "error-stack-parser": "^2.0.3", "iserror": "^0.0.2", "stack-generator": "^2.0.3" } }, "sha512-dFSs80ZwJ508nlC6UTLTUMdHgTaHY5UKvMiuHqstCQrQrOjqFcIv+x4o+l2WrSyOpoYhHAxDlKfzKN8AjwslQw=="],
@@ -160,6 +166,8 @@
 
     "acorn-import-attributes": ["acorn-import-attributes@1.9.5", "", { "peerDependencies": { "acorn": "^8" } }, "sha512-n02Vykv5uA3eHGM/Z2dQrcD56kL8TyDb2p1+0P83PClMnC/nc+anbQRhIOWnSq4Ke/KvDPrY3C9hDtC/A3eHnQ=="],
 
+    "arktype": ["arktype@2.1.20", "", { "dependencies": { "@ark/schema": "0.46.0", "@ark/util": "0.46.0" } }, "sha512-IZCEEXaJ8g+Ijd59WtSYwtjnqXiwM8sWQ5EjGamcto7+HVN9eK0C4p0zDlCuAwWhpqr6fIBkxPuYDl4/Mcj/+Q=="],
+
     "bun-types": ["bun-types@1.2.12", "", { "dependencies": { "@types/node": "*" } }, "sha512-tvWMx5vPqbRXgE8WUZI94iS1xAYs8bkqESR9cxBB1Wi+urvfTrF1uzuDgBHFAdO0+d2lmsbG3HmeKMvUyj6pWA=="],
 
     "byline": ["byline@5.0.0", "", {}, "sha512-s6webAy+R4SR8XVuJWt2V2rGvhnrhxN+9S15GNuTK3wKPOXFF6RNc+8ug2XhH+2s4f+uudG4kUVYmYOQWL2g0Q=="],
@@ -261,6 +269,8 @@
     "wrappy": ["wrappy@1.0.2", "", {}, "sha512-l4Sp/DRseor9wL6EvV2+TuQn63dMkPjZ/sp9XkghTEbV9KlPS1xUsZ3u7/IQO4wxtcFB4bgpQPRcR3QCvezPcQ=="],
 
     "xtend": ["xtend@4.0.2", "", {}, "sha512-LKYU1iAXJXUgAXn9URjiu+MWhyUXHsvfp7mcuYm9dSUKK0/CjtrUwFAxD82/mCWbtLsGjFIad0wIsod4zrTAEQ=="],
+
+    "zod": ["zod@3.25.56", "", {}, "sha512-rd6eEF3BTNvQnR2e2wwolfTmUTnp70aUTqr0oaGbHifzC3BKJsoV+Gat8vxUMR1hwOKBs6El+qWehrHbCpW6SQ=="],
 
     "@fastify/otel/@opentelemetry/core": ["@opentelemetry/core@2.0.0", "", { "dependencies": { "@opentelemetry/semantic-conventions": "^1.29.0" }, "peerDependencies": { "@opentelemetry/api": ">=1.0.0 <1.10.0" } }, "sha512-SLX36allrcnVaPYG3R78F/UZZsBsvbc7lMCLx37LyH5MJ1KAAZ2E3mW9OAD3zGz0G8q/BtoS5VUrjzDydhD6LQ=="],
 

@@ -64,6 +64,7 @@ type RouteOptions = {
   onError?: ErrorHandler
   requestObject?: (...args: unknown[]) => MapRequestObject
   requestFormat?: MapRequestObject['requestFormat']
+  throwOnError?: boolean
 }
 
 // Context types for progressive building
@@ -209,7 +210,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
               const result = await (value as (ctx: unknown) => Promise<unknown>)(newCtx)
               parsedResults[key] = result
             } catch (error) {
-              throw new RouteError(`Bad Request: Error parsing \`${key}\``, {
+              throw new RouteError(`Error parsing \`${key}\``, {
                 errorCode: 'PARSE_ERROR',
                 errorMessage: (error as Error).message,
                 httpStatus: key === 'auth' ? 401 : key === 'method' ? 405 : key === 'path' ? 404 : 400,
@@ -221,7 +222,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
             const method = req.method as RouteMethod
             const allowedMethods = Array.isArray(value) ? value : [value as RouteMethod]
             if (!allowedMethods.includes(method)) {
-              throw new RouteError("Bad Request: Error parsing `method`", {
+              throw new RouteError("Error parsing `method`", {
                 errorCode: 'PARSE_ERROR',
                 errorMessage: `Method ${method} not allowed. Expected: ${allowedMethods.join(', ')}`,
                 httpStatus: 405,
@@ -235,7 +236,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
             const requestPath = url.pathname
             const expectedPath = value as string
             if (requestPath !== expectedPath) {
-              throw new RouteError("Bad Request: Error parsing `path`", {
+              throw new RouteError("Error parsing `path`", {
                 errorCode: 'PARSE_ERROR',
                 errorMessage: `Path ${requestPath} does not match expected path ${expectedPath}`,
                 httpStatus: 404,
@@ -272,7 +273,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
             throw new Error('Invalid path params')
         } catch (error) {
           routeBuilder.currentStep[routeBuilder.steps.length - 1] = 'error'
-          throw new RouteError("Bad Request: Invalid request object", {
+          throw new RouteError("Invalid request object", {
             errorCode: 'REQUEST_MAPPING_ERROR',
             errorMessage: `Failed to extract Request object: ${(error as Error).message}`,
             httpStatus: 400,
@@ -303,7 +304,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
               routeBuilder.currentStep[stepCounter] = 'error'
               routeBuilder.routeError = isRouteError(error)
                 ? error
-                : new RouteError("Bad Request: Error when preparing request", {
+                : new RouteError("Error when preparing request", {
                   errorCode: 'PREPARE_ERROR',
                   errorMessage: (error as Error).message,
                   httpStatus: 400,
@@ -331,7 +332,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
               routeBuilder.currentStep[stepCounter] = 'error'
               routeBuilder.routeError = isRouteError(error)
                 ? error
-                : new RouteError("Bad Request: Error when parsing request", {
+                : new RouteError("Error when parsing request", {
                   errorCode: 'PARSE_ERROR',
                   errorMessage: (error as Error).message,
                   httpStatus: 400,
@@ -374,8 +375,20 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
             return response as unknown as TResponse
           }
         }
-        // Let user handle the error manually
-        throw error
+
+        if (routeBuilder.routeOptions.throwOnError) {
+          // Let user handle the error manually
+          throw error
+        }
+
+        const err = error as RouteError
+        const json = JSON.stringify({
+          error: {
+            message: `${err.message}: ${err.errorMessage}`,
+            code: err.errorCode
+          }
+        })
+        return new Response(json, { status: err.httpStatus }) as TResponse
       }
     }
 
@@ -406,7 +419,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
               routeBuilder.currentStep[stepCounter] = 'error'
               routeBuilder.routeError = isRouteError(error)
                 ? error
-                : new RouteError("Bad Request: Error when parsing request", {
+                : new RouteError("Error when parsing request", {
                   errorCode: 'PARSE_ERROR',
                   errorMessage: (error as Error).message,
                   httpStatus: 500,
