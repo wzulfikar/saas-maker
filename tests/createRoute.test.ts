@@ -55,16 +55,16 @@ describe("Stage 1: Foundation Types & RouteError", () => {
 
     test("create route with all options", () => {
       const routeBuilder = createRoute({
-        onRequest: async (req) => {
-          console.log("request received:", req.method)
+        onRequest: async (ctx) => {
+          console.log("request received:", ctx.request.method)
         },
-        onResponse: async (res) => {
-          console.log("response sent:", res.status)
+        onResponse: async (ctx) => {
+          console.log("response sent:", ctx.response.status)
         },
         onError: async (err) => {
           console.error(err)
         },
-        requestObject: (args) => args as Request
+        requestObject: (...args: any[]) => ({ request: args[0] as Request })
       })
       expect(routeBuilder).toBeDefined()
     })
@@ -158,8 +158,8 @@ describe("Stage 2: Basic Builder Pattern", () => {
   describe("RouteBuilder Constructor", () => {
     test("store route options with defaults", () => {
       const routeBuilder = createRoute({
-        onRequest: async (req) => {
-          console.log("request:", req.url)
+        onRequest: async (ctx) => {
+          console.log("request:", ctx.request.url)
         }
       })
       expect(routeBuilder).toBeDefined()
@@ -176,9 +176,9 @@ describe("Stage 2: Basic Builder Pattern", () => {
       let requestCalled = false
 
       const route = createRoute({
-        onRequest: async (req) => {
+        onRequest: async (ctx) => {
           requestCalled = true
-          expect(req instanceof Request).toBe(true)
+          expect(ctx.request instanceof Request).toBe(true)
         }
       }).handle(async (ctx) => {
         expect(requestCalled).toBe(true)
@@ -195,14 +195,19 @@ describe("Stage 2: Basic Builder Pattern", () => {
       let responseCalled = false
 
       const route = createRoute({
-        onResponse: async (res) => {
+        onResponse: async (ctx) => {
           responseCalled = true
-          expect(res instanceof Response).toBe(true)
-          expect(res.status).toBe(200)
+          expect(ctx.response instanceof Response).toBe(true)
+          expect(ctx.response.status).toBe(200)
+          expect(ctx.message).toBe("hello")
         }
-      }).handle(async (ctx) => {
-        return { message: "hello" }
       })
+        .prepare(async (ctx) => {
+          return { message: "hello" }
+        })
+        .handle(async (ctx) => {
+          return { message: "hello" }
+        })
 
       const mockRequest = new Request('http://localhost/test')
       await route(mockRequest)
@@ -218,9 +223,9 @@ describe("Stage 2: Basic Builder Pattern", () => {
       })
 
       const route = createRoute({
-        onError: async (err) => {
+        onError: async (ctx) => {
           errorCalled = true
-          expect(err).toBe(testError)
+          expect(ctx.error).toBe(testError)
         }
       }).handle(async (ctx) => {
         throw testError
@@ -252,18 +257,18 @@ describe("Stage 2: Basic Builder Pattern", () => {
 
     test("use custom request object mapper", async () => {
       const route = createRoute({
-        requestObject: (args) => {
+        requestObject: (arg: any) => {
           // Simulate framework that passes request in a wrapper
-          const wrapper = args as { req: Request }
-          return wrapper.req
+          return { request: arg.customReq as Request, pathParams: arg.customPathParams }
         }
       }).handle(async (ctx) => {
+        console.log('ctx:', ctx);
         expect(ctx.request instanceof Request).toBe(true)
         return { method: ctx.request.method }
       })
 
       const mockRequest = new Request('http://localhost/test', { method: 'POST' })
-      const wrapper = { req: mockRequest }
+      const wrapper = { customReq: mockRequest, customPathParams: {} }
       // Cast to function that accepts unknown args
       const routeHandler = route as (...args: unknown[]) => Promise<{ method: string }>
       const response = await routeHandler(wrapper)
@@ -2009,7 +2014,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       })
 
       const route = createRoute({
-        requestObject: (args) => (Array.isArray(args) ? args : [args])[0] as Request
+        requestObject: (...args: any[]) => ({ request: (Array.isArray(args) ? args : [args])[0] as Request })
       })
         .prepare(async (req) => ({ framework: 'nextjs' }))
         .handle(async (ctx) => {
@@ -2036,13 +2041,18 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       }
 
       const route = createRoute({
-        requestObject: (...args: unknown[]) => (args[0] as { req: Request }).req as Request
+        onError: async (ctx) => {
+          console.log('error:', ctx.error);
+          console.log('ctx.framework:', ctx.framework);
+          expect(ctx.framework).toBe('hono')
+        }
       })
-        .prepare(async (req) => ({ framework: 'hono' }))
+        .prepare(async (ctx) => ({ framework: 'hono' }))
         .handle(async (ctx) => {
           expect(ctx.request.url).toBe('http://localhost/hono')
           expect(ctx.request.method).toBe('GET')
           expect(ctx.framework).toBe('hono')
+          // throw new Error('test')
           return { success: true, framework: 'hono' }
         })
 
@@ -2059,9 +2069,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       const mockEnv = { SECRET_KEY: 'test' }
       const mockCtx = { waitUntil: () => { } }
 
-      const route = createRoute({
-        requestObject: (args) => (Array.isArray(args) ? args : [args])[0] as Request
-      })
+      const route = createRoute()
         .prepare(async (ctx) => ({ platform: 'cloudflare' }))
         .handle(async (ctx) => {
           expect(ctx.request.url).toBe('http://worker.example.com/api')
@@ -2116,11 +2124,13 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           if (req?.method && req.url) {
             const url = req.protocol ? `${req.protocol}://localhost${req.originalUrl || req.url}`
               : `http://localhost${req.originalUrl || req.url}`
-            return new Request(url, {
-              method: req.method as string,
-              headers: new Headers(req.headers as Record<string, string> || {}),
-              body: req.method !== 'GET' && req.method !== 'HEAD' ? JSON.stringify(req.body) : undefined
-            })
+            return {
+              request: new Request(url, {
+                method: req.method as string,
+                headers: new Headers(req.headers as Record<string, string> || {}),
+                body: req.method !== 'GET' && req.method !== 'HEAD' ? JSON.stringify(req.body) : undefined
+              })
+            }
           }
 
           throw new Error('Invalid Express request object')
@@ -2148,10 +2158,8 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       expect(response as unknown as Response).toEqual(jsonResponse({ success: true }))
     })
 
-    test("minimal request mapping", async () => {
-      const route = createRoute({
-        requestObject: (args) => args as Request
-      })
+    test("no request mapping", async () => {
+      const route = createRoute()
         .prepare(async (req) => ({ runtime: 'minimal' }))
         .handle(async (ctx) => {
           expect(ctx.runtime).toBe('minimal')
@@ -2355,11 +2363,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
   describe("Enhanced Error Handling", () => {
     test("framework request mapping errors are properly handled", async () => {
       const route = createRoute({
-        requestObject: (args) => {
-          const context = args as Record<string, unknown>
-          if (context?.req) {
-            return context.req as Request
-          }
+        requestObject: (...args: any[]) => {
           throw new Error('Invalid Hono context object')
         }
       })
@@ -2381,8 +2385,8 @@ describe("Stage 9: Framework Integration & Invoke", () => {
       let capturedError: Error | null = null
 
       const route = createRoute({
-        onError: async (error) => {
-          capturedError = error
+        onError: async (ctx) => {
+          capturedError = ctx.error
         }
       })
         .prepare(async (req) => {
@@ -2438,9 +2442,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
   describe("Real Framework Integration Examples", () => {
     test("Next.js API route pattern", async () => {
       // Simulate Next.js API route: export default async function handler(req, context)
-      const nextjsRoute = createRoute({
-        requestObject: (args) => (Array.isArray(args) ? args : [args])[0] as Request
-      })
+      const nextjsRoute = createRoute()
         .prepare(async (ctx) => {
           // Extract user from session/headers
           const authHeader = ctx.request.headers.get('authorization')
@@ -2490,9 +2492,7 @@ describe("Stage 9: Framework Integration & Invoke", () => {
 
     test("Cloudflare Workers pattern", async () => {
       // Simulate: export default { async fetch(request, env, ctx) { ... } }
-      const cfRoute = createRoute({
-        requestObject: (args) => (Array.isArray(args) ? args : [args])[0] as Request
-      })
+      const cfRoute = createRoute()
         .prepare(async (ctx) => {
           return {
             edge: true,
@@ -2538,11 +2538,13 @@ describe("Stage 9: Framework Integration & Invoke", () => {
           if (req?.method && req.url) {
             const url = req.protocol ? `${req.protocol}://api.example.com${req.originalUrl || req.url}`
               : `http://api.example.com${req.originalUrl || req.url}`
-            return new Request(url, {
-              method: req.method as string,
-              headers: new Headers(req.headers as Record<string, string> || {}),
-              body: req.method !== 'GET' && req.method !== 'HEAD' ? JSON.stringify(req.body) : undefined
-            })
+            return {
+              request: new Request(url, {
+                method: req.method as string,
+                headers: new Headers(req.headers as Record<string, string> || {}),
+                body: req.method !== 'GET' && req.method !== 'HEAD' ? JSON.stringify(req.body) : undefined
+              })
+            }
           }
 
           throw new Error('Invalid Express request object')

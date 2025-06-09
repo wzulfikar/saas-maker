@@ -7,6 +7,21 @@ type RouteInfo = {
   name?: string
   extends: string[]
   steps: string[]
+  requestFormat?: MapRequestObject['requestFormat']
+}
+
+type RequestWithPathParams = {
+  request: Request,
+  pathParams?: Record<string, unknown>
+}
+
+type MapRequestObject = RequestWithPathParams & {
+  requestFormat?:
+  | 'OBJECT'
+  | 'OBJECT_WITH_PARAMS' // Example: Bun.serve
+  | 'POSITIONAL_ARGS'
+  | 'POSITIONAL_ARGS_WITH_PARAMS' // Example: Next.js App Route
+  | (string & {}) // Slot for custom format provided by user
 }
 
 // RouteError class for structured error handling
@@ -37,13 +52,18 @@ export class RouteError extends Error {
   }
 }
 
+export type ErrorHandler = (ctx: ErrorHandlerPayload) => Promise<void | Response> | void | Response
+
+export type ErrorHandlerPayload = { error: RouteError } & RequestWithPathParams & Context
+
 // Enhanced route options with minimal framework integration
 type RouteOptions = {
   name?: string
-  onRequest?: (req: Request) => Promise<void | Response> | void | Response
-  onResponse?: (res: Response) => Promise<void | Response> | void | Response
-  onError?: (err: RouteError) => Promise<void | Response> | void | Response
-  requestObject?: (...args: unknown[]) => Request
+  onRequest?: (ctx: RequestWithPathParams) => Promise<void | Response> | void | Response
+  onResponse?: (ctx: RequestWithPathParams & Context & { response: Response }) => Promise<void | Response> | void | Response
+  onError?: ErrorHandler
+  requestObject?: (...args: unknown[]) => MapRequestObject
+  requestFormat?: MapRequestObject['requestFormat']
 }
 
 // Context types for progressive building
@@ -239,11 +259,17 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
     const routeBuilder = this
     routeBuilder.steps.push({ type: 'handle' })
     async function routeHandler(...args: unknown[]): Promise<TResponse> {
+      // Build context by executing prepare steps
+      let requestObj = {} as MapRequestObject
+      let context = {} as Context & RequestWithPathParams
+      let stepCounter = 0
       try {
-        let request
         try {
-          request = requestObject ? requestObject(...args) : args[0] instanceof Request ? args[0] as Request : null
-          if (!request) throw new Error('Invalid request object')
+          requestObj = requestObject ? requestObject(...args) : mapRequestObject(...args)
+          if (!requestObj.request || !(requestObj.request instanceof Request))
+            throw new Error('Invalid request object')
+          if (requestObj.pathParams && requestObj.pathParams !== null && typeof requestObj.pathParams !== 'object')
+            throw new Error('Invalid path params')
         } catch (error) {
           routeBuilder.currentStep[routeBuilder.steps.length - 1] = 'error'
           throw new RouteError("Bad Request: Invalid request object", {
@@ -254,17 +280,17 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
           })
         }
 
+        context.request = requestObj.request
+        context.pathParams = requestObj.pathParams
+        routeBuilder.routeOptions.requestFormat = requestObj.requestFormat
+
         if (onRequest) {
-          const maybeEarlyResponse = await onRequest(request)
+          const maybeEarlyResponse = await onRequest(context)
           // Short circuit if onRequest returns a response
           if (maybeEarlyResponse instanceof Response) {
             return maybeEarlyResponse as unknown as TResponse
           }
         }
-
-        // Build context by executing prepare steps
-        let context: { request: Request } & Context = { request }
-        let stepCounter = 0
 
         for (const step of routeBuilder.steps) {
           if (step.type === 'prepare') {
@@ -318,16 +344,17 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
           stepCounter++
         }
 
-        const response = await handlerFn(context as { request: Request } & TContext)
+        const response = await handlerFn(context as RequestWithPathParams & TContext)
         const wrappedResponse = response instanceof Response
           ? response
           : new Response(JSON.stringify(response), {
             status: 200,
             headers: { 'Content-Type': 'application/json' }
           })
+        context.response = wrappedResponse
 
         if (onResponse) {
-          const customResponse = await onResponse(wrappedResponse)
+          const customResponse = await onResponse(context as RequestWithPathParams & { response: Response })
           if (customResponse instanceof Response) {
             routeBuilder.currentStep[routeBuilder.steps.length - 1] = 'ok'
             return customResponse as unknown as TResponse
@@ -341,7 +368,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
         if (onError) {
           const err = error as RouteError
           (err as any).routeInfo = routeBuilder.getRouteInfo()
-          const response = await onError(err)
+          const response = await onError({ ...context, error: err })
           if (response instanceof Response) {
             // TODO: fix type. don't infer return value from happy path's type if there's error. should we add `errorValue`?
             return response as unknown as TResponse
@@ -353,8 +380,8 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
     }
 
     routeHandler.invoke = async (contextOverride?: Partial<TContext>): Promise<TResponse> => {
+      const mockRequest = new Request('http://localhost/invoke')
       try {
-        const mockRequest = new Request('http://localhost/invoke')
         let context: { request: Request } & Context = { request: mockRequest, ...contextOverride }
         let stepCounter = 0
         for (const step of routeBuilder.steps) {
@@ -425,7 +452,8 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
         if (onError) {
           const err = error as RouteError
           (err as any).routeInfo = routeBuilder.getRouteInfo()
-          const response = await onError(err)
+          // TODO: handle `pathParams` in .invoke
+          const response = await onError({ request: mockRequest, pathParams: undefined, error: err })
           if (response instanceof Response) {
             return response as unknown as TResponse
           }
@@ -453,6 +481,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
       name: this.routeOptions.name,
       extends: this.extends,
       steps: steps,
+      requestFormat: this.routeOptions.requestFormat,
     }
   }
 }
@@ -514,7 +543,36 @@ type RouteTypeInfo<TContext, TResponse, TAccumulatedPayloads = {}> = {
   returnValue: TResponse
 }
 
-// createRoute helpers
+// 
+// internal helpers
+// 
+
+/**
+ * Map request object to a format used in popular frameworks.
+ */
+function mapRequestObject(...handlerArgs: any[]): MapRequestObject {
+  const [firstArg, secondArg, ..._] = handlerArgs
+  if (firstArg instanceof Request) {
+    if (secondArg !== null && typeof secondArg === 'object') {
+      return { request: firstArg, pathParams: secondArg, requestFormat: 'POSITIONAL_ARGS_WITH_PARAMS' }
+    }
+    return { request: firstArg, requestFormat: 'POSITIONAL_ARGS' }
+  }
+  if (typeof firstArg === 'object' && ('request' in firstArg || 'req' in firstArg)) {
+    const request = firstArg.request instanceof Request
+      ? firstArg.request
+      : firstArg.req instanceof Request
+        ? firstArg.req
+        : null
+    if (request) {
+      if ('params' in firstArg) {
+        return { request, pathParams: firstArg.params, requestFormat: 'OBJECT_WITH_PARAMS' }
+      }
+      return { request, requestFormat: 'OBJECT' }
+    }
+  }
+  throw new Error('Error mapping request object with the default `mapRequestObject`')
+}
 
 function parseQuery(ctx: { request: Request, query?: Record<string, string> }) {
   if (!ctx.query) {
