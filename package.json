@@ -1,6 +1,6 @@
 {
   "name": "saas-maker",
-  "version": "0.0.15-rc.2",
+  "version": "0.0.16-rc.3",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "sideEffects": false,
@@ -90,6 +90,9 @@
       "optional": true
     },
     "react": {
+      "optional": true
+    },
+    "@tanstack/react-query": {
       "optional": true
     }
   },

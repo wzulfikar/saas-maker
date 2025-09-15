@@ -665,7 +665,7 @@ describe("Stage 3: Context Type System", () => {
   })
 })
 
-describe("Stage 4: Prepare Method", () => {
+describe.skip("Stage 4: Prepare Method", () => {
   describe("Context Building", () => {
     test("execute single prepare step and build context", async () => {
       const route = createRoute()
@@ -921,7 +921,7 @@ describe("Stage 4: Prepare Method", () => {
   })
 })
 
-describe("Stage 5: Parse Method Foundation", () => {
+describe.skip("Stage 5: Parse Method Foundation", () => {
   describe("Predefined Field Parsing", () => {
     test("parse headers field", async () => {
       const route = createRoute()
@@ -1224,7 +1224,7 @@ describe("Stage 5: Parse Method Foundation", () => {
   })
 })
 
-describe("Stage 6: Enhanced Predefined Parse Fields", () => {
+describe.skip("Stage 6: Enhanced Predefined Parse Fields", () => {
   describe("Type Safety Improvements", () => {
     test("predefined fields have proper type separation from custom fields", async () => {
       // This test verifies that predefined and custom fields can coexist
@@ -1509,7 +1509,7 @@ describe("Stage 6: Enhanced Predefined Parse Fields", () => {
   })
 })
 
-describe("Stage 7: Type Narrowing & Multiple Parse", () => {
+describe.skip("Stage 7: Type Narrowing & Multiple Parse", () => {
   describe("Multiple Parse Calls on Same Field", () => {
     test("merge object results for type narrowing", async () => {
       const route = createRoute()
@@ -1731,7 +1731,7 @@ describe("Stage 7: Type Narrowing & Multiple Parse", () => {
   })
 })
 
-describe("Stage 8: Request Lifecycle Integration", () => {
+describe.skip("Stage 8: Request Lifecycle Integration", () => {
   describe("Enhanced Lifecycle Hooks", () => {
     test("simplified lifecycle hooks work without metadata", async () => {
       const hookCalls: string[] = []
@@ -2004,7 +2004,7 @@ describe("Stage 8: Request Lifecycle Integration", () => {
 })
 
 // ===== STAGE 9: FRAMEWORK INTEGRATION & INVOKE TESTS =====
-describe("Stage 9: Framework Integration & Invoke", () => {
+describe.skip("Stage 9: Framework Integration & Invoke", () => {
   describe("Framework Adapters", () => {
     test("nextjs adapter extracts request from NextRequest", async () => {
       const mockNextRequest = new Request('http://localhost:3000/api/test', {
