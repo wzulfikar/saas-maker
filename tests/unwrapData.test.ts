@@ -6,7 +6,7 @@ import type { Result } from "../src/types";
 describe("unwrapData", () => {
   test("no error", () => {
     const result: Result<{ ok: true }> = { data: { ok: true }, error: null };
-    // unwrapData(result, "test");
+    unwrapData(result, "test");
     expect(result.data).toEqual({ ok: true });
   });
 
