@@ -1,6 +1,6 @@
 import { AppError, type AppErrorParams } from './error'
 
-interface HasData<T = Record<string, unknown>> {
+export interface HasNullableData<T = Record<string, unknown>> {
   data: T | null
   error?: unknown
 }
@@ -9,7 +9,7 @@ interface HasData<T = Record<string, unknown>> {
  * Throws error (`AppError`) if the object has `data` property that is `null`
  */
 export function throwOnNull<T>(
-  obj: HasData<T>,
+  obj: HasNullableData<T>,
   /**
    * Message to include in the error. Should be safe to display to users.
    */

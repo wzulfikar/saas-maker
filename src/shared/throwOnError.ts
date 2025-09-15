@@ -1,6 +1,6 @@
 import { AppError, type AppErrorParams } from './error'
 
-interface HasError {
+export interface HasError {
   error?: Error | string | object | null | undefined
 }
 
