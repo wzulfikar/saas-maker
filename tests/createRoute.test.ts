@@ -2722,7 +2722,7 @@ describe("Stage 10: Route Type Extraction", () => {
             }
           },
           method: ['GET', 'POST'] as const,
-          path: '/api/users/[id]'
+          path: '/api/users/[id]' as const
         })
         .handle(async (ctx) => {
           return {

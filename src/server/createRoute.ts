@@ -12,7 +12,7 @@ type RouteInfo = {
 
 type RequestWithPathParams = {
   request: Request,
-  pathParams?: Record<string, unknown>
+  pathParams?: Record<string, string>
 }
 
 type MapRequestObject = RequestWithPathParams & {
@@ -109,7 +109,7 @@ type ExtractParseResult<T> =
     M extends readonly RouteMethod[] ? { method: M[number] } :
     M extends RouteMethod ? { method: M } :
     {} : {}) &
-  (T extends { path?: infer P } ? P extends string ? { path: { matched: P, params: Record<string, unknown> } } : {} : {})
+  (T extends { path?: infer P } ? P extends string ? { path: { matched: P, params: ExtractPathParams<P> } } : {} : {})
 
 /**
  * Remove never fields from type
@@ -231,19 +231,56 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
             }
             parsedResults.method = method
           } else if (key === 'path') {
-            // Handle path validation
+            // Handle path validation and parameter extraction
             const url = new URL(req.url)
             const requestPath = url.pathname
             const expectedPath = value as string
-            if (requestPath !== expectedPath) {
-              throw new RouteError("Error parsing `path`", {
-                errorCode: 'PARSE_ERROR',
-                errorMessage: `Path ${requestPath} does not match expected path ${expectedPath}`,
-                httpStatus: 404,
-                cause: new Error('Path mismatch')
+            
+            // Check if expectedPath has parameters (contains [param] syntax)
+            const paramPattern = /\[([^\]]+)\]/g
+            const paramMatches = Array.from(expectedPath.matchAll(paramPattern))
+            
+            if (paramMatches.length > 0) {
+              // Convert path pattern to regex for matching
+              // e.g., '/api/users/[id]' becomes '/api/users/([^/]+)'
+              let pathRegexPattern = expectedPath.replace(/\[([^\]]+)\]/g, '([^/]+)')
+              pathRegexPattern = `^${pathRegexPattern}$`
+              const pathRegex = new RegExp(pathRegexPattern)
+              
+              const match = requestPath.match(pathRegex)
+              if (!match) {
+                throw new RouteError("Error parsing `path`", {
+                  errorCode: 'PARSE_ERROR',
+                  errorMessage: `Path ${requestPath} does not match expected path ${expectedPath}`,
+                  httpStatus: 404,
+                  cause: new Error('Path mismatch')
+                })
+              }
+              
+              // Extract parameter values
+              const params: Record<string, string> = {}
+              paramMatches.forEach((paramMatch, index) => {
+                const paramName = paramMatch[1] // The parameter name inside [brackets]
+                const paramValue = match[index + 1] // The captured value (+1 because match[0] is the full match)
+                params[paramName] = paramValue
               })
+              
+              parsedResults.path = {
+                matched: expectedPath,
+                params
+              }
+            } else {
+              // No parameters in path, do exact match
+              if (requestPath !== expectedPath) {
+                throw new RouteError("Error parsing `path`", {
+                  errorCode: 'PARSE_ERROR',
+                  errorMessage: `Path ${requestPath} does not match expected path ${expectedPath}`,
+                  httpStatus: 404,
+                  cause: new Error('Path mismatch')
+                })
+              }
+              parsedResults.path = { matched: expectedPath, params: {} }
             }
-            parsedResults.path = { matched: expectedPath, params: {} }
           }
         }
 
