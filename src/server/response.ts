@@ -25,10 +25,25 @@ export function text(
   });
 }
 
-// Returns a redirect Response
+/**
+ * Returns a redirect Response. The default status is 302 (temporary redirect).
+ * 
+ * Available redirect statuses:
+ * - 300 Multiple Choices
+ * - 301 Moved Permanently (permanent redirect). Search engines may use this to update their index.
+ * - 302 Found (temporary redirect). Browser may change the HTTP method from POST to GET. 
+ * - 303 See Other
+ * - 304 Not Modified
+ * - 305 Use Proxy
+ * - 306 Unused
+ * - 307 Temporary Redirect (HTTP method must not change)
+ * - 308 Permanent Redirect (HTTP method must not change)
+ * 
+ * @see https://developer.mozilla.org/en-US/docs/Web/HTTP/Reference/Status#redirection_messages
+ */
 export function redirect(
   url: string,
-  status: 301 | 302 = 302,
+  status: 300 | 301 | 302 | 303 | 304 | 305 | 306 | 307 | 308 = 302,
   init: ResponseInit = {}
 ): Response {
   return new Response(null, {
