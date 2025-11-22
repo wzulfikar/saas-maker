@@ -1,12 +1,19 @@
 {
   "name": "saas-maker",
-  "version": "0.0.17-rc.1",
+  "version": "0.0.17-rc.2",
   "main": "dist/index.js",
   "types": "dist/index.d.ts",
   "sideEffects": false,
   "files": [
     "dist"
   ],
+  "scripts": {
+    "test": "bun test",
+    "dev": "bun tsc --watch",
+    "typecheck": "tsgo -p tsconfig.test.json",
+    "check": "bunx concurrently 'bun typecheck' 'bun test'",
+    "build": "bunx rimraf dist && tsc"
+  },
   "exports": {
     ".": {
       "types": "./dist/index.d.ts",
@@ -48,13 +55,6 @@
       "import": "./dist/test-utils/index.js",
       "require": "./dist/test-utils/index.js"
     }
-  },
-  "scripts": {
-    "test": "bun test",
-    "dev": "bun tsc --watch",
-    "typecheck": "tsgo -p tsconfig.test.json",
-    "check": "bunx concurrently 'bun typecheck' 'bun test'",
-    "build": "bunx rimraf dist && tsc"
   },
   "keywords": [
     "saas",
