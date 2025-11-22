@@ -42,6 +42,11 @@
       "types": "./dist/react/index.d.ts",
       "import": "./dist/react/index.js",
       "require": "./dist/react/index.js"
+    },
+    "./test-utils": {
+      "types": "./dist/test-utils/index.d.ts",
+      "import": "./dist/test-utils/index.js",
+      "require": "./dist/test-utils/index.js"
     }
   },
   "scripts": {
@@ -98,5 +103,8 @@
   "bugs": {
     "url": "https://github.com/wzulfikar/saas-maker/issues"
   },
-  "homepage": "https://github.com/wzulfikar/saas-maker#readme"
+  "homepage": "https://github.com/wzulfikar/saas-maker#readme",
+  "dependencies": {
+    "msw": "^2.12.2"
+  }
 }
