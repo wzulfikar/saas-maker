@@ -46,8 +46,9 @@
   },
   "scripts": {
     "test": "bun test",
-    "type-check": "tsgo -p tsconfig.test.json",
-    "check": "bunx concurrently 'bun type-check' 'bun test'",
+    "dev": "bun tsc --watch",
+    "typecheck": "tsgo -p tsconfig.test.json",
+    "check": "bunx concurrently 'bun typecheck' 'bun test'",
     "build": "bunx rimraf dist && tsc"
   },
   "keywords": [
@@ -66,9 +67,6 @@
     "zod": "^3.25.56"
   },
   "peerDependencies": {
-    "@bugsnag/js": "^8.2.0",
-    "@sentry/browser": "^9.17.0",
-    "@sentry/node": "^9.17.0",
     "@types/react": "^19.1.4",
     "posthog-js": "^1.245.0",
     "react": "^19.1.0"

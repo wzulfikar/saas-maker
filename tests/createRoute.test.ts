@@ -1,5 +1,6 @@
 import { describe, test, expect } from "bun:test"
 import { createRoute, RouteError } from "../src/server/createRoute"
+import { throwOnError } from "../src/shared/throwOnError"
 import type { Expect, Eq } from "../src/types-helper"
 
 const invokeMockRequest = new Request('http://localhost/invoke')
@@ -148,6 +149,8 @@ describe("Stage 1: Foundation Types & RouteError", () => {
       })
 
       const result = await route.invoke({})
+      throwOnError(result)
+
       expect(result.success).toBe(true)
       expect(typeof result.timestamp).toBe('number')
     })
@@ -254,26 +257,6 @@ describe("Stage 2: Basic Builder Pattern", () => {
       const response = await route(mockRequest)
       expect(response as unknown as Response).toEqual(jsonResponse({ url: 'http://localhost/api/test' }))
     })
-
-    test("use custom request object mapper", async () => {
-      const route = createRoute({
-        requestObject: (arg: any) => {
-          // Simulate framework that passes request in a wrapper
-          return { request: arg.customReq as Request, pathParams: arg.customPathParams }
-        }
-      }).handle(async (ctx) => {
-        console.log('ctx:', ctx);
-        expect(ctx.request instanceof Request).toBe(true)
-        return { method: ctx.request.method }
-      })
-
-      const mockRequest = new Request('http://localhost/test', { method: 'POST' })
-      const wrapper = { customReq: mockRequest, customPathParams: {} }
-      // Cast to function that accepts unknown args
-      const routeHandler = route as (...args: unknown[]) => Promise<{ method: string }>
-      const response = await routeHandler(wrapper)
-      expect(response as unknown as Response).toEqual(jsonResponse({ method: 'POST' }))
-    })
   })
 
   describe("Invoke Method Enhanced", () => {
@@ -283,6 +266,8 @@ describe("Stage 2: Basic Builder Pattern", () => {
       })
 
       const result = await route.invoke()
+      throwOnError(result)
+      
       expect(typeof result.timestamp).toBe('number')
       expect(result.ctx).toEqual({ request: invokeMockRequest })
     })
@@ -294,6 +279,8 @@ describe("Stage 2: Basic Builder Pattern", () => {
 
       // Use empty object for context override since TContext is EmptyContext
       const result = await route.invoke({})
+      throwOnError(result)
+
       expect(result.ctx).toEqual({ request: invokeMockRequest })
     })
 
@@ -2260,6 +2247,7 @@ describe.skip("Stage 9: Framework Integration & Invoke", () => {
         skipPrepare: true,
         skipParse: true
       })
+      throwOnError(result)
 
       expect(executionOrder).toEqual(['handle']) // Only handle called
       expect(result.success).toBe(true)

@@ -1,3 +1,4 @@
+import { RouteError } from "../server"
 import type { ErrorCode } from "../types"
 
 export type AppErrorParams = {
@@ -39,9 +40,13 @@ export function formatAppError(error: AppError) {
   return errorLog
 }
 
-export type ErrorInfo = {
+export type ErrorInfo<ErrorDetails = unknown> = {
   message: string
   code?: string
+  details?: Record<string, ErrorDetails>
+  /**
+   * Whether the error received should forward the error to the error reporting tool
+   */
   report?: boolean
   /**
    * Only applicable when passing AppError in server codes
@@ -53,7 +58,7 @@ export type ErrorInfo = {
  * Get the error info from an AppError. Returns null if the error is not an AppError.
  */
 export const getErrorInfo = (error: any): ErrorInfo | null => {
-  if (error && (error.name === 'AppError' || error instanceof AppError)) {
+  if (error && (error instanceof AppError || error.name === 'AppError' || error instanceof RouteError || error.name === 'RouteError')) {
     return {
       code: error.errorCode,
       message: error.message,
@@ -62,4 +67,11 @@ export const getErrorInfo = (error: any): ErrorInfo | null => {
     }
   }
   return null
+}
+
+/** 
+ * Cast object type to ErrorInfo
+ */
+export const maybeError = <T>(obj: T) => {
+  return obj as { data: T } | { error: ErrorInfo }
 }

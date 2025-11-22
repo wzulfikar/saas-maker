@@ -1,8 +1,10 @@
 import { AppError, type AppErrorParams } from './error'
 
-export interface HasError {
-  error?: Error | string | object | null | undefined
-}
+type ErrorType = Error | string | object
+
+export type HasError =
+  | { error?: ErrorType | null | undefined }
+  | (object | { error: ErrorType })
 
 type CanThrow<T> = () => T
 
@@ -23,19 +25,19 @@ type CanThrow<T> = () => T
  */
 export function throwOnError<T>(
   objOrFn: CanThrow<T>,
-  message: string,
+  message?: string,
   appErrorParams?: AppErrorParams,
 ): T;
 
 export function throwOnError<T extends HasError>(
   objOrFn: T,
-  message: string,
+  message?: string,
   appErrorParams?: AppErrorParams,
 ): asserts objOrFn is T & { error: null | undefined };
 
 export function throwOnError<T>(
   objOrFn: CanThrow<T> | HasError,
-  message: string,
+  message?: string,
   appErrorParams?: AppErrorParams,
 ): any {
   // Handle function case
@@ -52,7 +54,7 @@ export function throwOnError<T>(
 
   // Handle object case
   const obj = objOrFn as HasError;
-  if (!obj.error) return;
+  if (!('error' in obj) || !obj.error) return;
 
   const appError = (errMessage: string) =>
     new AppError(errMessage, {

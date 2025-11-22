@@ -3,7 +3,7 @@
 pre-commit:
   parallel: true
   jobs:
-    - run: bun type-check
+    - run: bun typecheck
       glob: "*.{js,ts,jsx,tsx}"
     - run: bun test {staged_files}
       glob: "*.{js,ts,jsx,tsx}"

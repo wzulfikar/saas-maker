@@ -1,3 +1,5 @@
+import type { ErrorInfo } from "../shared/error";
+
 export function isRouteError(error: any): error is RouteError {
   return error instanceof RouteError ||
     (error && error.name === 'RouteError' && 'errorCode' in error);
@@ -240,6 +242,9 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
             const paramPattern = /\[([^\]]+)\]/g
             const paramMatches = Array.from(expectedPath.matchAll(paramPattern))
             
+            // When skip path checking when `.invoke` is used
+            const isInvokePath = requestPath === '/invoke'
+
             if (paramMatches.length > 0) {
               // Convert path pattern to regex for matching
               // e.g., '/api/users/[id]' becomes '/api/users/([^/]+)'
@@ -248,35 +253,38 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
               const pathRegex = new RegExp(pathRegexPattern)
               
               const match = requestPath.match(pathRegex)
-              if (!match) {
-                throw new RouteError("Error parsing `path`", {
-                  errorCode: 'PARSE_ERROR',
-                  errorMessage: `Path ${requestPath} does not match expected path ${expectedPath}`,
-                  httpStatus: 404,
-                  cause: new Error('Path mismatch')
+
+              if (match) {
+                // Extract parameter values
+                const params: Record<string, string> = {}
+                paramMatches.forEach((paramMatch, index) => {
+                  const paramName = paramMatch[1] // The parameter name inside [brackets]
+                  const paramValue = match[index + 1] // The captured value (+1 because match[0] is the full match)
+                  params[paramName] = paramValue
                 })
-              }
-              
-              // Extract parameter values
-              const params: Record<string, string> = {}
-              paramMatches.forEach((paramMatch, index) => {
-                const paramName = paramMatch[1] // The parameter name inside [brackets]
-                const paramValue = match[index + 1] // The captured value (+1 because match[0] is the full match)
-                params[paramName] = paramValue
-              })
-              
-              parsedResults.path = {
-                matched: expectedPath,
-                params
+                
+                parsedResults.path = {
+                  matched: expectedPath,
+                  params
+                }
+              } else if (!isInvokePath) {
+                const errorMessage = `Path '${requestPath}' does not match expected path '${expectedPath}'`
+                throw new RouteError(`Error parsing 'path': ${errorMessage}`, {
+                  errorCode: 'PARSE_ERROR',
+                  errorMessage,
+                  httpStatus: 404,
+                  cause: new Error(`Path mismatch: ${errorMessage}`)
+                })
               }
             } else {
               // No parameters in path, do exact match
-              if (requestPath !== expectedPath) {
-                throw new RouteError("Error parsing `path`", {
+              if (requestPath !== expectedPath && !isInvokePath) {
+                const errorMessage = `Path '${requestPath}' does not match exact path '${expectedPath}'`
+                throw new RouteError(`Error parsing 'path': ${errorMessage}`, {
                   errorCode: 'PARSE_ERROR',
-                  errorMessage: `Path ${requestPath} does not match expected path ${expectedPath}`,
+                  errorMessage,
                   httpStatus: 404,
-                  cause: new Error('Path mismatch')
+                  cause: new Error(`Path mismatch: ${errorMessage}`)
                 })
               }
               parsedResults.path = { matched: expectedPath, params: {} }
@@ -429,8 +437,10 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
       }
     }
 
+    // routeHandler.invoke = async (contextOverride?: Partial<TContext>): Promise<TResponse> => {
     routeHandler.invoke = async (contextOverride?: Partial<TContext>): Promise<TResponse> => {
-      const mockRequest = new Request('http://localhost/invoke')
+      const invokePath = (contextOverride as Context)?.path || '/invoke' 
+      const mockRequest = new Request(`http://localhost${invokePath}`)
       try {
         let context: { request: Request } & Context = { request: mockRequest, ...contextOverride }
         let stepCounter = 0
@@ -505,7 +515,12 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
           // TODO: handle `pathParams` in .invoke
           const response = await onError({ request: mockRequest, pathParams: undefined, error: err })
           if (response instanceof Response) {
-            return response as unknown as TResponse
+            const text = await response.text()
+            try {
+              return JSON.parse(text) as unknown as TResponse
+            } catch (_) {
+              return text as unknown as TResponse
+            }
           }
         }
         throw routeBuilder.routeError
@@ -543,9 +558,9 @@ export const createRoute = (routeOptions: RouteOptions = {}) => {
 
 // Enhanced route handler interface
 interface RouteHandler<TContext, TResponse, TAccumulatedPayloads = {}> {
-  (...args: unknown[]): Promise<TResponse>
+  (...args: unknown[]): Promise<Response>
   getRouteInfo(): RouteInfo
-  invoke(contextOverride?: Partial<TContext>): Promise<TResponse>
+  invoke(contextOverride?: Partial<TContext>): Promise<TResponse | { error: ErrorInfo }>
   inferRouteType: RouteTypeInfo<TContext, TResponse, TAccumulatedPayloads>
 }
 
