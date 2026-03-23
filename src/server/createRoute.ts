@@ -213,7 +213,7 @@ export class RouteBuilder<TContext = EmptyContext, TAccumulatedPayloads = {}> {
               parsedResults[key] = result
             } catch (error) {
               throw new RouteError(`Error parsing \`${key}\``, {
-                errorCode: 'PARSE_ERROR',
+                errorCode: key === 'auth' ? 'AUTH_ERROR' : 'PARSE_ERROR',
                 errorMessage: (error as Error).message,
                 httpStatus: key === 'auth' ? 401 : key === 'method' ? 405 : key === 'path' ? 404 : 400,
                 cause: error as Error
